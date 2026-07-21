@@ -26,9 +26,14 @@ public partial class MainWindow : Window
 
         var app = (App)Application.Current;
 
+        if (app.TraceLogger.IsEnabled)
+        {
+            Title += " - modo depuração";
+        }
+
         _monitoringViewModel = new MonitoringViewModel(app.MonitoringService, app.Settings, app.DataDirectory);
-        _dataViewModel = new DataViewModel(app.MonitoringService, GetDatabasePath);
-        _chartViewModel = new ChartViewModel(app.MonitoringService, GetDatabasePath);
+        _dataViewModel = new DataViewModel(app.MonitoringService, GetDatabasePath, app.AlertEventQueries, app.TraceLogger);
+        _chartViewModel = new ChartViewModel(app.MonitoringService, GetDatabasePath, app.AlertEventQueries);
 
         MonitoringTabRoot.DataContext = _monitoringViewModel;
         DataTabRoot.DataContext = _dataViewModel;

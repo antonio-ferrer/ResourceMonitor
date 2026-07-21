@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.Text.Json;
 using CommunityToolkit.Mvvm.ComponentModel;
 using ResourceMonitor.Monitoring;
@@ -10,18 +11,23 @@ public partial class ChartViewModel : ObservableObject
 {
     private readonly MonitoringService _monitoringService;
     private readonly Func<string> _getDatabasePath;
+    private readonly AlertEventQueries _alertEventQueries;
 
     [ObservableProperty] private long? currentAlertEventId;
     [ObservableProperty] private string statusText = "Selecione um evento na aba Dados.";
     [ObservableProperty] private string liveStatusText = "Aguardando o monitoramento iniciar...";
 
+    public ObservableCollection<ProcessSnapshotRow> TopByCpu { get; } = new();
+    public ObservableCollection<ProcessSnapshotRow> TopByRam { get; } = new();
+
     public event EventHandler<string>? PeakSamplesReady;
     public event EventHandler<string>? LiveSamplesReady;
 
-    public ChartViewModel(MonitoringService monitoringService, Func<string> getDatabasePath)
+    public ChartViewModel(MonitoringService monitoringService, Func<string> getDatabasePath, AlertEventQueries alertEventQueries)
     {
         _monitoringService = monitoringService;
         _getDatabasePath = getDatabasePath;
+        _alertEventQueries = alertEventQueries;
 
         _monitoringService.SampleCollected += OnSampleCollected;
     }
@@ -42,15 +48,30 @@ public partial class ChartViewModel : ObservableObject
     {
         CurrentAlertEventId = alertEventId;
         var databasePath = _getDatabasePath();
-        var samples = AlertEventQueries.GetSamplesForAlertEvent(databasePath, alertEventId);
 
-        if (samples.Count == 0)
+        var snapshots = _alertEventQueries.GetProcessSnapshotsForAlertEvent(databasePath, alertEventId);
+        TopByCpu.Clear();
+        TopByRam.Clear();
+        foreach (var snapshot in snapshots)
         {
-            StatusText = $"Evento #{alertEventId}: sem amostras capturadas (janela ainda pendente ou fora do intervalo).";
-            return;
+            if (snapshot.Kind == "Cpu")
+            {
+                TopByCpu.Add(snapshot);
+            }
+            else if (snapshot.Kind == "Ram")
+            {
+                TopByRam.Add(snapshot);
+            }
         }
 
-        StatusText = $"Evento #{alertEventId}: {samples.Count} amostra(s).";
+        var samples = _alertEventQueries.GetSamplesForAlertEvent(databasePath, alertEventId);
+
+        StatusText = samples.Count == 0
+            ? $"Evento #{alertEventId}: sem amostras capturadas (janela ainda pendente ou fora do intervalo)."
+            : $"Evento #{alertEventId}: {samples.Count} amostra(s).";
+
+        // Sempre dispara, mesmo com lista vazia — senão o WebView2 fica com o desenho do
+        // evento selecionado anteriormente (o chart.html já sabe mostrar "sem dados" com []).
         PeakSamplesReady?.Invoke(this, ToChartJson(samples));
     }
 
@@ -58,7 +79,7 @@ public partial class ChartViewModel : ObservableObject
     {
         var payload = samples.Select(s => new
         {
-            timestamp = s.Timestamp.ToString("HH:mm:ss"),
+            timestamp = s.Timestamp.ToLocalTime().ToString("HH:mm:ss"),
             cpu = Math.Round(s.CpuAdjustedPercent, 1),
             ram = Math.Round(s.RamAdjustedPercent, 1),
         });

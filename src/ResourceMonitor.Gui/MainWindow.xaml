@@ -5,14 +5,21 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:ResourceMonitor.Gui"
         xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+        xmlns:conv="clr-namespace:ResourceMonitor.Gui.Converters"
         mc:Ignorable="d"
         Icon="Assets/app.ico"
         Title="ResourceMonitor" Height="700" Width="1000">
+    <Window.Resources>
+        <conv:MetricDisplayConverter x:Key="MetricDisplayConverter" />
+        <conv:LocalDateTimeConverter x:Key="LocalDateTimeConverter" />
+        <conv:DurationMinutesDisplayConverter x:Key="DurationMinutesDisplayConverter" />
+    </Window.Resources>
     <TabControl x:Name="RootTabControl">
 
         <TabItem Header="Monitoramento">
             <Grid x:Name="MonitoringTabRoot" Margin="16">
                 <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
@@ -62,7 +69,34 @@
                     </StackPanel>
                 </UniformGrid>
 
-                <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,16,0,16">
+                <StackPanel Grid.Row="1" Margin="0,0,0,16" IsEnabled="{Binding CanEditSettings}">
+                    <Label Content="Processos excluídos do cálculo (aceita * como coringa, ex: discord*)" Padding="0,0,0,4" />
+                    <ItemsControl ItemsSource="{Binding ExcludedProcesses}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <WrapPanel />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border BorderBrush="Gray" BorderThickness="1" CornerRadius="3" Margin="0,0,8,8" Padding="8,2">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="{Binding}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                        <Button Content="Remover" Padding="4,0"
+                                                Command="{Binding DataContext.RemoveExcludedProcessCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                CommandParameter="{Binding}" />
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                        <TextBox Text="{Binding NewExcludedProcessPattern, UpdateSourceTrigger=PropertyChanged}" Width="220" Margin="0,0,8,0" />
+                        <Button Content="Adicionar" Command="{Binding AddExcludedProcessCommand}" Padding="12,4" />
+                    </StackPanel>
+                </StackPanel>
+
+                <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,16">
                     <Button Content="Salvar" Command="{Binding SaveCommand}" Padding="12,4" Margin="0,0,8,0" />
                     <Button Content="Restaurar padrões" Command="{Binding RestoreDefaultsCommand}" Padding="12,4" Margin="0,0,8,0" />
                     <Button Content="Iniciar" Command="{Binding StartCommand}" Padding="12,4" Margin="0,0,8,0" />
@@ -70,12 +104,12 @@
                     <CheckBox Content="Iniciar com o Windows" IsChecked="{Binding StartWithWindows}" VerticalAlignment="Center" />
                 </StackPanel>
 
-                <StackPanel Grid.Row="2" VerticalAlignment="Top">
+                <StackPanel Grid.Row="3" VerticalAlignment="Top">
                     <TextBlock Text="{Binding StatusText}" FontWeight="Bold" Margin="0,0,0,4" />
                     <TextBlock Text="{Binding LastSampleText}" />
                 </StackPanel>
 
-                <TextBlock Grid.Row="3" HorizontalAlignment="Right" Margin="0,16,0,0" Foreground="Gray" FontSize="11">
+                <TextBlock Grid.Row="4" HorizontalAlignment="Right" Margin="0,16,0,0" Foreground="Gray" FontSize="11">
                     <Hyperlink NavigateUri="https://icons8.com" RequestNavigate="OnCreditHyperlinkRequestNavigate">Ícone por Icons8</Hyperlink>
                 </TextBlock>
             </Grid>
@@ -93,7 +127,35 @@
 
                 <TextBlock Grid.Row="0" Text="Dados correntes (cache ao vivo)" FontWeight="Bold" Margin="0,0,0,4" />
                 <DataGrid Grid.Row="1" ItemsSource="{Binding CurrentSamples}"
-                          AutoGenerateColumns="True" IsReadOnly="True" Margin="0,0,0,12" />
+                          AutoGenerateColumns="False" IsReadOnly="True" Margin="0,0,0,12">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Binding="{Binding Timestamp, Converter={StaticResource LocalDateTimeConverter}}">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="Horário" ToolTip="Data e hora da amostra" />
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Binding="{Binding CpuRawPercent, StringFormat='{}{0:N1}%'}">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="CPU (bruto)" ToolTip="Uso total de CPU no momento, incluindo os processos excluídos" />
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Binding="{Binding CpuAdjustedPercent, StringFormat='{}{0:N1}%'}">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="CPU (líquido)" ToolTip="Uso de CPU descontando os processos da lista de exclusão" />
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Binding="{Binding RamRawPercent, StringFormat='{}{0:N1}%'}">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="RAM (bruto)" ToolTip="Uso total de RAM no momento, incluindo os processos excluídos" />
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Binding="{Binding RamAdjustedPercent, StringFormat='{}{0:N1}%'}">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="RAM (líquido)" ToolTip="Uso de RAM descontando os processos da lista de exclusão" />
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
 
                 <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,8" VerticalAlignment="Center">
                     <TextBlock Text="Base de picos" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,16,0" />
@@ -104,8 +166,51 @@
                     <Button Content="Atualizar" Command="{Binding RefreshCommand}" Padding="12,4" />
                 </StackPanel>
 
-                <DataGrid Grid.Row="3" ItemsSource="{Binding Events}" SelectedItem="{Binding SelectedEvent}"
-                          AutoGenerateColumns="True" IsReadOnly="True" />
+                <DataGrid Grid.Row="3" ItemsSource="{Binding Episodes}" SelectedItem="{Binding SelectedEpisode}"
+                          AutoGenerateColumns="False" IsReadOnly="True">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Binding="{Binding StartEventId}">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="ID" ToolTip="Identificador do evento de início (Start)" />
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Binding="{Binding Timestamp, Converter={StaticResource LocalDateTimeConverter}}">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="Data/Hora" ToolTip="Quando o alerta começou" />
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Binding="{Binding Converter={StaticResource DurationMinutesDisplayConverter}}">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="Duração" ToolTip="Tempo entre o início do alerta e a recuperação. 'Maior que' aparece quando o monitoramento foi parado antes do alerta recuperar." />
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Binding="{Binding Metric, Converter={StaticResource MetricDisplayConverter}}">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="Métrica" ToolTip="Recurso que disparou o evento" />
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Binding="{Binding DriveName}">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="Unidade" ToolTip="Unidade de disco afetada (quando aplicável)" />
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Binding="{Binding RawValue, StringFormat='{}{0:N1}%'}">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="Valor bruto" ToolTip="Valor medido no momento do evento, sem descontar os processos excluídos" />
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Binding="{Binding AdjustedValue, StringFormat='{}{0:N1}%'}">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="Valor líquido" ToolTip="Valor descontando os processos excluídos (só se aplica a CPU/RAM)" />
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Binding="{Binding Threshold, StringFormat='{}{0:N1}%'}">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="Limite" ToolTip="Limite configurado que foi violado" />
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
 
                 <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,8,0,0">
                     <Button Content="Exportar CSV" Command="{Binding ExportCsvCommand}" Padding="12,4" Margin="0,0,8,0" />
@@ -129,7 +234,44 @@
                 <wv2:WebView2 Grid.Row="1" x:Name="LiveChartWebView" Margin="0,0,0,16" />
 
                 <TextBlock Grid.Row="2" Text="{Binding StatusText, StringFormat='Base de picos: {0}'}" Margin="0,0,0,8" FontWeight="Bold" />
-                <wv2:WebView2 Grid.Row="3" x:Name="PeakChartWebView" />
+                <Grid Grid.Row="3">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="260" />
+                    </Grid.ColumnDefinitions>
+
+                    <wv2:WebView2 Grid.Column="0" x:Name="PeakChartWebView" />
+
+                    <StackPanel Grid.Column="1" Margin="12,0,0,0">
+                        <TextBlock Text="Top processos por CPU" FontWeight="Bold" Margin="0,0,0,4"
+                                   ToolTip="Os processos que mais consumiam CPU no momento do pico" />
+                        <ItemsControl ItemsSource="{Binding TopByCpu}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Margin="0,0,0,2" TextTrimming="CharacterEllipsis">
+                                        <Run Text="{Binding ProcessName, Mode=OneWay}" />
+                                        <Run Text=" — " />
+                                        <Run Text="{Binding CpuPercent, StringFormat='{}{0:N1}%', Mode=OneWay}" />
+                                    </TextBlock>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <TextBlock Text="Top processos por RAM" FontWeight="Bold" Margin="0,16,0,4"
+                                   ToolTip="Os processos que mais consumiam RAM no momento do pico" />
+                        <ItemsControl ItemsSource="{Binding TopByRam}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Margin="0,0,0,2" TextTrimming="CharacterEllipsis">
+                                        <Run Text="{Binding ProcessName, Mode=OneWay}" />
+                                        <Run Text=" — " />
+                                        <Run Text="{Binding RamMb, StringFormat='{}{0:N0} MB', Mode=OneWay}" />
+                                    </TextBlock>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Grid>
             </Grid>
         </TabItem>
 

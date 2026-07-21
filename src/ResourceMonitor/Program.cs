@@ -19,7 +19,7 @@ Console.CancelKeyPress += (_, e) =>
 monitoringService.SampleCollected += (_, sample) =>
 {
     Console.WriteLine(
-        $"[{sample.Timestamp:HH:mm:ss}] CPU {sample.CpuRawPercent,5:F1}% (líquido {sample.CpuAdjustedPercent,5:F1}%) | " +
+        $"[{sample.Timestamp.ToLocalTime():HH:mm:ss}] CPU {sample.CpuRawPercent,5:F1}% (líquido {sample.CpuAdjustedPercent,5:F1}%) | " +
         $"RAM {sample.RamRawPercent,5:F1}% (líquido {sample.RamAdjustedPercent,5:F1}%)");
 };
 

@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using ResourceMonitor.Alerting;
@@ -29,6 +30,9 @@ public partial class MonitoringViewModel : ObservableObject
     [ObservableProperty] private string statusText = "Parado.";
     [ObservableProperty] private string lastSampleText = "Sem amostras ainda.";
     [ObservableProperty] private bool startWithWindows;
+    [ObservableProperty] private string newExcludedProcessPattern = string.Empty;
+
+    public ObservableCollection<string> ExcludedProcesses { get; } = new();
 
     public bool CanEditSettings => !IsRunning;
 
@@ -40,6 +44,14 @@ public partial class MonitoringViewModel : ObservableObject
         LoadFrom(initialSettings);
         IsRunning = _monitoringService.IsRunning;
         StartWithWindows = AutoStartManager.IsEnabled();
+
+        // Se o monitoramento já foi iniciado antes da janela existir (boot via --minimized,
+        // ver App.xaml.cs), o texto de status precisa refletir isso — senão fica preso em
+        // "Parado." mesmo com os botões já mostrando IsRunning = true.
+        if (IsRunning)
+        {
+            StatusText = "Monitorando...";
+        }
 
         _monitoringService.SampleCollected += OnSampleCollected;
         _monitoringService.AlertRaised += OnAlertRaised;
@@ -58,6 +70,12 @@ public partial class MonitoringViewModel : ObservableObject
         RamPercent = settings.Thresholds.RamPercent;
         DiskFreePercentMin = settings.Thresholds.DiskFreePercentMin;
         DiskIoPercent = settings.Thresholds.DiskIoPercent;
+
+        ExcludedProcesses.Clear();
+        foreach (var pattern in settings.ExcludedProcesses)
+        {
+            ExcludedProcesses.Add(pattern);
+        }
     }
 
     private MonitorSettings BuildSettings() => new()
@@ -68,6 +86,7 @@ public partial class MonitoringViewModel : ObservableObject
         TopProcessCount = TopProcessCount,
         PreEventSeconds = PreEventSeconds,
         PostEventSeconds = PostEventSeconds,
+        ExcludedProcesses = ExcludedProcesses.ToList(),
         Thresholds = new ThresholdSettings
         {
             CpuPercent = CpuPercent,
@@ -76,6 +95,29 @@ public partial class MonitoringViewModel : ObservableObject
             DiskIoPercent = DiskIoPercent,
         },
     };
+
+    [RelayCommand]
+    private void AddExcludedProcess()
+    {
+        var pattern = NewExcludedProcessPattern.Trim();
+        if (pattern.Length == 0)
+        {
+            return;
+        }
+
+        if (!ExcludedProcesses.Any(p => string.Equals(p, pattern, StringComparison.OrdinalIgnoreCase)))
+        {
+            ExcludedProcesses.Add(pattern);
+        }
+
+        NewExcludedProcessPattern = string.Empty;
+    }
+
+    [RelayCommand]
+    private void RemoveExcludedProcess(string pattern)
+    {
+        ExcludedProcesses.Remove(pattern);
+    }
 
     [RelayCommand]
     private void Save()
@@ -128,7 +170,7 @@ public partial class MonitoringViewModel : ObservableObject
         Application.Current.Dispatcher.Invoke(() =>
         {
             LastSampleText =
-                $"[{sample.Timestamp:HH:mm:ss}] CPU {sample.CpuAdjustedPercent:F1}% | RAM {sample.RamAdjustedPercent:F1}%";
+                $"[{sample.Timestamp.ToLocalTime():HH:mm:ss}] CPU {sample.CpuAdjustedPercent:F1}% | RAM {sample.RamAdjustedPercent:F1}%";
         });
     }
 

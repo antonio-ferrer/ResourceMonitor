@@ -78,11 +78,15 @@ public sealed class MonitoringService : IDisposable
 
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(settings.SampleIntervalSeconds));
 
+        // Alertas com Start já gravado mas ainda sem End — se o app for encerrado com algo
+        // aberto aqui (Parar manual, crash), esses IDs são marcados como interrompidos no finally.
+        var openAlerts = new Dictionary<string, long>();
+
         try
         {
             do
             {
-                var sample = sampler.Sample();
+                var sample = sampler.Sample(settings.ExcludedProcesses);
                 if (sample is null)
                 {
                     continue; // amostra de aquecimento
@@ -97,17 +101,30 @@ public sealed class MonitoringService : IDisposable
                 foreach (var alertEvent in events)
                 {
                     var alertEventId = permanent.InsertAlertEvent(alertEvent);
+                    var key = $"{alertEvent.Metric}|{alertEvent.DriveName}";
 
                     if (alertEvent.EventType == AlertEventType.Start)
                     {
+                        openAlerts[key] = alertEventId;
+
                         var (topByCpu, topByRam) = await ProcessSnapshotter.CaptureAsync(settings.TopProcessCount);
                         permanent.InsertProcessSnapshots(alertEventId, "Cpu", topByCpu);
                         permanent.InsertProcessSnapshots(alertEventId, "Ram", topByRam);
 
                         captureCoordinator.BeginCapture(alertEventId, alertEvent.PeakTimestamp ?? alertEvent.Timestamp);
                     }
+                    else
+                    {
+                        openAlerts.Remove(key);
+                    }
 
                     AlertRaised?.Invoke(this, alertEvent);
+                }
+
+                // Heartbeat: enquanto o alerta segue ativo, atualiza o último instante confirmado.
+                foreach (var openAlertId in openAlerts.Values)
+                {
+                    permanent.UpdateLastActive(openAlertId, sample.Timestamp);
                 }
 
                 captureCoordinator.FlushReady(sample.Timestamp, cache, permanent);
@@ -125,6 +142,12 @@ public sealed class MonitoringService : IDisposable
         finally
         {
             captureCoordinator.FlushAll(cache, permanent);
+
+            foreach (var openAlertId in openAlerts.Values)
+            {
+                permanent.MarkInterrupted(openAlertId, DateTimeOffset.UtcNow);
+            }
+
             _cache = null;
         }
     }

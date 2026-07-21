@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using ResourceMonitor.Diagnostics;
 using ResourceMonitor.Monitoring;
 using ResourceMonitor.Sampling;
 using ResourceMonitor.Storage;
@@ -22,22 +23,30 @@ public partial class DataViewModel : ObservableObject
 {
     private readonly MonitoringService _monitoringService;
     private readonly Func<string> _getDatabasePath;
+    private readonly AlertEventQueries _alertEventQueries;
+    private readonly ITraceLogger _traceLogger;
 
     [ObservableProperty] private DateTime? fromDate;
     [ObservableProperty] private DateTime? toDate;
-    [ObservableProperty] private AlertEventRow? selectedEvent;
+    [ObservableProperty] private AlertEpisodeRow? selectedEpisode;
     [ObservableProperty] private string statusText = string.Empty;
 
     public ObservableCollection<CurrentSampleRow> CurrentSamples { get; } = new();
 
-    public ObservableCollection<AlertEventRow> Events { get; } = new();
+    public ObservableCollection<AlertEpisodeRow> Episodes { get; } = new();
 
     public event EventHandler<long>? ViewChartRequested;
 
-    public DataViewModel(MonitoringService monitoringService, Func<string> getDatabasePath)
+    public DataViewModel(
+        MonitoringService monitoringService,
+        Func<string> getDatabasePath,
+        AlertEventQueries alertEventQueries,
+        ITraceLogger traceLogger)
     {
         _monitoringService = monitoringService;
         _getDatabasePath = getDatabasePath;
+        _alertEventQueries = alertEventQueries;
+        _traceLogger = traceLogger;
 
         _monitoringService.SampleCollected += OnSampleCollected;
 
@@ -61,18 +70,25 @@ public partial class DataViewModel : ObservableObject
     private void Refresh()
     {
         var databasePath = _getDatabasePath();
+        _traceLogger.Trace("DataViewModel",
+            $"Refresh chamado. FromDate={(FromDate is { } fd ? fd.ToString("O") : "null")} " +
+            $"ToDate={(ToDate is { } td ? td.ToString("O") : "null")} databasePath='{databasePath}'");
+
         DateTimeOffset? from = FromDate is { } f ? new DateTimeOffset(f) : null;
         DateTimeOffset? to = ToDate is { } t ? new DateTimeOffset(t.Date.AddDays(1).AddTicks(-1)) : null;
 
-        var rows = AlertEventQueries.GetAlertEvents(databasePath, from, to);
+        _traceLogger.Trace("DataViewModel", $"from calculado='{from:O}' to calculado='{to:O}'");
 
-        Events.Clear();
+        var rows = _alertEventQueries.GetAlertEpisodes(databasePath, from, to);
+
+        Episodes.Clear();
         foreach (var row in rows)
         {
-            Events.Add(row);
+            Episodes.Add(row);
         }
 
-        StatusText = $"{Events.Count} evento(s) na base de picos.";
+        StatusText = $"{Episodes.Count} evento(s) na base de picos.";
+        _traceLogger.Trace("DataViewModel", $"Refresh concluído. Episodes.Count={Episodes.Count}");
     }
 
     [RelayCommand]
@@ -89,22 +105,22 @@ public partial class DataViewModel : ObservableObject
             return;
         }
 
-        CsvExporter.ExportAlertEvents(dialog.FileName, Events);
+        CsvExporter.ExportAlertEpisodes(dialog.FileName, Episodes);
         StatusText = $"Exportado pra {dialog.FileName}";
     }
 
     [RelayCommand(CanExecute = nameof(HasSelection))]
     private void ViewChart()
     {
-        if (SelectedEvent is { } selected)
+        if (SelectedEpisode is { } selected)
         {
-            ViewChartRequested?.Invoke(this, selected.Id);
+            ViewChartRequested?.Invoke(this, selected.StartEventId);
         }
     }
 
-    private bool HasSelection() => SelectedEvent is not null;
+    private bool HasSelection() => SelectedEpisode is not null;
 
-    partial void OnSelectedEventChanged(AlertEventRow? value) => ViewChartCommand.NotifyCanExecuteChanged();
+    partial void OnSelectedEpisodeChanged(AlertEpisodeRow? value) => ViewChartCommand.NotifyCanExecuteChanged();
 
     [RelayCommand]
     private void ClearData()

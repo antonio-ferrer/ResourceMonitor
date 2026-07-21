@@ -1,63 +1,146 @@
 using System.Globalization;
 using Microsoft.Data.Sqlite;
+using ResourceMonitor.Diagnostics;
 using ResourceMonitor.Sampling;
 
 namespace ResourceMonitor.Storage;
 
-public sealed record AlertEventRow(
-    long Id,
+// Um "episódio" é o par Start+End de um alerta, composto na hora da consulta — a tabela
+// continua guardando os dois eventos separados (ver PermanentDatabase).
+// DurationMinutes fica null só quando o alerta está genuinamente em andamento (monitoramento
+// ainda rodando, sem End e sem ter sido marcado como interrompido). Quando IsInterrupted é
+// true, DurationMinutes é uma duração MÍNIMA conhecida (via heartbeat), não a duração real.
+public sealed record AlertEpisodeRow(
+    long StartEventId,
     DateTimeOffset Timestamp,
-    string EventType,
     string Metric,
     string? DriveName,
+    double? DurationMinutes,
+    bool IsInterrupted,
     double RawValue,
     double? AdjustedValue,
     double Threshold);
 
+public sealed record ProcessSnapshotRow(
+    string Kind,
+    string ProcessName,
+    int ProcessId,
+    double CpuPercent,
+    double RamMb);
+
 // Consultas de leitura pra GUI — abre uma conexão curta por chamada, pensado pra uso
 // interativo (grid, export, gráfico), não pro loop de monitoramento.
-public static class AlertEventQueries
+public sealed class AlertEventQueries
 {
-    public static List<AlertEventRow> GetAlertEvents(string databasePath, DateTimeOffset? from, DateTimeOffset? to)
+    private readonly ITraceLogger _traceLogger;
+
+    public AlertEventQueries(ITraceLogger traceLogger)
     {
+        _traceLogger = traceLogger;
+    }
+
+    public List<AlertEpisodeRow> GetAlertEpisodes(string databasePath, DateTimeOffset? from, DateTimeOffset? to)
+    {
+        _traceLogger.Trace("AlertEventQueries",
+            $"GetAlertEpisodes chamado. databasePath='{databasePath}' from='{from:O}' to='{to:O}'");
+
         if (!File.Exists(databasePath))
         {
-            return new List<AlertEventRow>();
+            _traceLogger.Trace("AlertEventQueries", "Banco não existe nesse caminho. Retornando lista vazia.");
+            return new List<AlertEpisodeRow>();
         }
+
+        // Garante que um banco de uma versão anterior do app (sem LastActiveUtc/Interrupted)
+        // já esteja migrado antes de consultar essas colunas — a conexão abaixo é somente
+        // leitura e não pode rodar ALTER TABLE.
+        PermanentDatabase.EnsureSchema(databasePath);
 
         using var connection = new SqliteConnection($"Data Source={databasePath};Mode=ReadOnly");
         connection.Open();
 
+        // Busca tudo sem filtro de data aqui — o pareamento Start/End precisa do histórico
+        // completo (um End pode existir fora da janela mesmo com o Start dentro, ou vice-versa).
+        // O filtro from/to é aplicado depois, em cima do timestamp do Start de cada episódio.
         using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT Id, TimestampUtc, EventType, Metric, DriveName, RawValue, AdjustedValue, Threshold
+            SELECT Id, TimestampUtc, EventType, Metric, DriveName, RawValue, AdjustedValue, Threshold, LastActiveUtc, Interrupted
             FROM AlertEvents
-            WHERE ($from IS NULL OR TimestampUtc >= $from)
-              AND ($to IS NULL OR TimestampUtc <= $to)
-            ORDER BY TimestampUtc DESC;
+            ORDER BY TimestampUtc;
             """;
-        command.Parameters.AddWithValue("$from", (object?)FormatTimestamp(from) ?? DBNull.Value);
-        command.Parameters.AddWithValue("$to", (object?)FormatTimestamp(to) ?? DBNull.Value);
 
-        var results = new List<AlertEventRow>();
-        using var reader = command.ExecuteReader();
-        while (reader.Read())
+        var rawRows = new List<(long Id, DateTimeOffset Timestamp, string EventType, string Metric,
+            string? DriveName, double RawValue, double? AdjustedValue, double Threshold,
+            DateTimeOffset? LastActiveUtc, bool Interrupted)>();
+        using (var reader = command.ExecuteReader())
         {
-            results.Add(new AlertEventRow(
-                reader.GetInt64(0),
-                ParseTimestamp(reader.GetString(1)),
-                reader.GetString(2),
-                reader.GetString(3),
-                reader.IsDBNull(4) ? null : reader.GetString(4),
-                reader.GetDouble(5),
-                reader.IsDBNull(6) ? null : reader.GetDouble(6),
-                reader.GetDouble(7)));
+            while (reader.Read())
+            {
+                rawRows.Add((
+                    reader.GetInt64(0),
+                    ParseTimestamp(reader.GetString(1)),
+                    reader.GetString(2),
+                    reader.GetString(3),
+                    reader.IsDBNull(4) ? null : reader.GetString(4),
+                    reader.GetDouble(5),
+                    reader.IsDBNull(6) ? null : reader.GetDouble(6),
+                    reader.GetDouble(7),
+                    reader.IsDBNull(8) ? null : ParseTimestamp(reader.GetString(8)),
+                    reader.GetInt64(9) != 0));
+            }
         }
+
+        // Pareia cada Start com o End seguinte de mesma métrica+unidade.
+        var openStarts = new Dictionary<string, (long Id, DateTimeOffset Timestamp, string Metric,
+            string? DriveName, double RawValue, double? AdjustedValue, double Threshold,
+            DateTimeOffset? LastActiveUtc, bool Interrupted)>();
+        var episodes = new List<AlertEpisodeRow>();
+
+        foreach (var row in rawRows)
+        {
+            var key = $"{row.Metric}|{row.DriveName}";
+
+            if (row.EventType == "Start")
+            {
+                openStarts[key] = (row.Id, row.Timestamp, row.Metric, row.DriveName, row.RawValue,
+                    row.AdjustedValue, row.Threshold, row.LastActiveUtc, row.Interrupted);
+            }
+            else if (row.EventType == "End" && openStarts.TryGetValue(key, out var start))
+            {
+                var durationMinutes = (row.Timestamp - start.Timestamp).TotalMinutes;
+                episodes.Add(new AlertEpisodeRow(
+                    start.Id, start.Timestamp, start.Metric, start.DriveName, durationMinutes, false,
+                    start.RawValue, start.AdjustedValue, start.Threshold));
+                openStarts.Remove(key);
+            }
+        }
+
+        // Starts sem End: se foi marcado como interrompido (Parar manual, crash), mostra a
+        // duração mínima conhecida via heartbeat; senão é genuinamente "em andamento" agora.
+        foreach (var start in openStarts.Values)
+        {
+            double? durationMinutes = null;
+            if (start.Interrupted && start.LastActiveUtc is { } lastActive)
+            {
+                durationMinutes = (lastActive - start.Timestamp).TotalMinutes;
+            }
+
+            episodes.Add(new AlertEpisodeRow(
+                start.Id, start.Timestamp, start.Metric, start.DriveName, durationMinutes, start.Interrupted,
+                start.RawValue, start.AdjustedValue, start.Threshold));
+        }
+
+        var results = episodes
+            .Where(ep => (from is null || ep.Timestamp >= from) && (to is null || ep.Timestamp <= to))
+            .OrderByDescending(ep => ep.Timestamp)
+            .ToList();
+
+        _traceLogger.Trace("AlertEventQueries",
+            $"GetAlertEpisodes retornou {results.Count} episódio(s) de {rawRows.Count} evento(s) crus.");
 
         return results;
     }
 
-    public static List<ResourceSample> GetSamplesForAlertEvent(string databasePath, long alertEventId)
+    public List<ResourceSample> GetSamplesForAlertEvent(string databasePath, long alertEventId)
     {
         if (!File.Exists(databasePath))
         {
@@ -123,8 +206,46 @@ public static class AlertEventQueries
         return result;
     }
 
+    public List<ProcessSnapshotRow> GetProcessSnapshotsForAlertEvent(string databasePath, long alertEventId)
+    {
+        if (!File.Exists(databasePath))
+        {
+            return new List<ProcessSnapshotRow>();
+        }
+
+        using var connection = new SqliteConnection($"Data Source={databasePath};Mode=ReadOnly");
+        connection.Open();
+
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT Kind, ProcessName, ProcessId, CpuPercent, RamMb
+            FROM AlertProcessSnapshots
+            WHERE AlertEventId = $alertEventId
+            ORDER BY Kind, CpuPercent DESC;
+            """;
+        command.Parameters.AddWithValue("$alertEventId", alertEventId);
+
+        var results = new List<ProcessSnapshotRow>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            results.Add(new ProcessSnapshotRow(
+                reader.GetString(0),
+                reader.GetString(1),
+                reader.GetInt32(2),
+                reader.GetDouble(3),
+                reader.GetDouble(4)));
+        }
+
+        return results;
+    }
+
+    // Normaliza pra UTC antes de formatar — TimestampUtc no banco está sempre em +00:00,
+    // e a comparação no SQL é textual (TEXT), então um filtro construído com offset local
+    // (ex: -03:00, quando o DatePicker manda um DateTime "Unspecified") compararia strings
+    // com offsets diferentes e podia dar resultado errado perto da virada do dia.
     private static string? FormatTimestamp(DateTimeOffset? value) =>
-        value?.ToString("O", CultureInfo.InvariantCulture);
+        value?.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
 
     private static DateTimeOffset ParseTimestamp(string value) =>
         DateTimeOffset.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);

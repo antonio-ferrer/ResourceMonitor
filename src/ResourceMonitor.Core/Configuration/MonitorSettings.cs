@@ -9,6 +9,7 @@ public sealed class MonitorSettings
     public int PreEventSeconds { get; set; } = 60;
     public int PostEventSeconds { get; set; } = 60;
     public string LogDirectory { get; set; } = "logs";
+    public List<string> ExcludedProcesses { get; set; } = new() { "ResourceMonitor*" };
     public ThresholdSettings Thresholds { get; set; } = new();
 }
 

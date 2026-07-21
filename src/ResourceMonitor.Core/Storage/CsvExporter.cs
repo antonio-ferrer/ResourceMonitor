@@ -5,19 +5,20 @@ namespace ResourceMonitor.Storage;
 
 public static class CsvExporter
 {
-    public static void ExportAlertEvents(string filePath, IEnumerable<AlertEventRow> rows)
+    public static void ExportAlertEpisodes(string filePath, IEnumerable<AlertEpisodeRow> rows)
     {
         var builder = new StringBuilder();
-        builder.AppendLine("Id,Timestamp,EventType,Metric,DriveName,RawValue,AdjustedValue,Threshold");
+        builder.AppendLine("StartEventId,Timestamp,Metric,DriveName,DurationMinutes,Interrupted,RawValue,AdjustedValue,Threshold");
 
         foreach (var row in rows)
         {
             builder.AppendLine(string.Join(",",
-                row.Id.ToString(CultureInfo.InvariantCulture),
-                Escape(row.Timestamp.ToString("O", CultureInfo.InvariantCulture)),
-                Escape(row.EventType),
+                row.StartEventId.ToString(CultureInfo.InvariantCulture),
+                Escape(row.Timestamp.ToLocalTime().ToString("O", CultureInfo.InvariantCulture)),
                 Escape(row.Metric),
                 Escape(row.DriveName ?? string.Empty),
+                row.DurationMinutes?.ToString("F1", CultureInfo.InvariantCulture) ?? string.Empty,
+                row.IsInterrupted ? "true" : "false",
                 row.RawValue.ToString("F2", CultureInfo.InvariantCulture),
                 row.AdjustedValue?.ToString("F2", CultureInfo.InvariantCulture) ?? string.Empty,
                 row.Threshold.ToString("F2", CultureInfo.InvariantCulture)));

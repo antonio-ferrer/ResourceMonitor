@@ -17,13 +17,31 @@ public sealed class PermanentDatabase : IDisposable
         Directory.CreateDirectory(Path.GetDirectoryName(databaseFilePath)!);
         _connection = new SqliteConnection($"Data Source={databaseFilePath}");
         _connection.Open();
-        CreateSchema();
+        ApplySchema(_connection);
     }
 
-    private void CreateSchema()
+    // Chamado pelo lado de leitura (AlertEventQueries) antes de abrir sua própria conexão
+    // somente-leitura: garante que um banco criado por uma versão antiga do app (antes de
+    // colunas como LastActiveUtc/Interrupted existirem) já esteja migrado, sem depender de
+    // que o usuário tenha clicado em "Iniciar" nessa execução (o que criaria um PermanentDatabase
+    // e migraria de qualquer forma).
+    public static void EnsureSchema(string databaseFilePath)
     {
-        using var command = _connection.CreateCommand();
-        command.CommandText = """
+        if (!File.Exists(databaseFilePath))
+        {
+            return;
+        }
+
+        using var connection = new SqliteConnection($"Data Source={databaseFilePath}");
+        connection.Open();
+        ApplySchema(connection);
+    }
+
+    private static void ApplySchema(SqliteConnection connection)
+    {
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = """
             CREATE TABLE IF NOT EXISTS AlertEvents (
                 Id INTEGER PRIMARY KEY AUTOINCREMENT,
                 TimestampUtc TEXT NOT NULL,
@@ -32,7 +50,9 @@ public sealed class PermanentDatabase : IDisposable
                 DriveName TEXT NULL,
                 RawValue REAL NOT NULL,
                 AdjustedValue REAL NULL,
-                Threshold REAL NOT NULL
+                Threshold REAL NOT NULL,
+                LastActiveUtc TEXT NULL,
+                Interrupted INTEGER NOT NULL DEFAULT 0
             );
             CREATE INDEX IF NOT EXISTS idx_alertevents_timestamp ON AlertEvents(TimestampUtc);
 
@@ -72,7 +92,38 @@ public sealed class PermanentDatabase : IDisposable
             );
             CREATE INDEX IF NOT EXISTS idx_disksamples_sample ON DiskSamples(SampleId);
             """;
-        command.ExecuteNonQuery();
+            command.ExecuteNonQuery();
+        }
+
+        // CREATE TABLE IF NOT EXISTS não altera uma tabela que já existia antes dessas colunas
+        // serem adicionadas — então garante que bancos antigos ganhem as colunas novas também.
+        EnsureColumnExists(connection, "AlertEvents", "LastActiveUtc", "TEXT NULL");
+        EnsureColumnExists(connection, "AlertEvents", "Interrupted", "INTEGER NOT NULL DEFAULT 0");
+    }
+
+    private static void EnsureColumnExists(SqliteConnection connection, string table, string column, string columnDefinition)
+    {
+        var exists = false;
+        using (var checkCommand = connection.CreateCommand())
+        {
+            checkCommand.CommandText = $"PRAGMA table_info({table});";
+            using var reader = checkCommand.ExecuteReader();
+            while (reader.Read())
+            {
+                if (string.Equals(reader.GetString(1), column, StringComparison.OrdinalIgnoreCase))
+                {
+                    exists = true;
+                    break;
+                }
+            }
+        }
+
+        if (!exists)
+        {
+            using var alterCommand = connection.CreateCommand();
+            alterCommand.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} {columnDefinition};";
+            alterCommand.ExecuteNonQuery();
+        }
     }
 
     public long InsertAlertEvent(AlertEvent alertEvent)
@@ -167,6 +218,29 @@ public sealed class PermanentDatabase : IDisposable
         }
 
         transaction.Commit();
+    }
+
+    // "Heartbeat" chamado a cada tick enquanto o alerta segue ativo — se o app for encerrado
+    // sem um End (crash, kill), esse é o último instante confirmado em que o alerta ainda
+    // estava de pé, usado como duração mínima conhecida na listagem.
+    public void UpdateLastActive(long alertEventId, DateTimeOffset timestamp)
+    {
+        using var command = _connection.CreateCommand();
+        command.CommandText = "UPDATE AlertEvents SET LastActiveUtc = $timestamp WHERE Id = $id;";
+        command.Parameters.AddWithValue("$timestamp", FormatTimestamp(timestamp));
+        command.Parameters.AddWithValue("$id", alertEventId);
+        command.ExecuteNonQuery();
+    }
+
+    // Chamado no encerramento (Parar manual ou shutdown) pra todo Start que ainda não tinha
+    // recebido seu End — marca explicitamente como interrompido, distinto de "ainda monitorando".
+    public void MarkInterrupted(long alertEventId, DateTimeOffset timestamp)
+    {
+        using var command = _connection.CreateCommand();
+        command.CommandText = "UPDATE AlertEvents SET Interrupted = 1, LastActiveUtc = $timestamp WHERE Id = $id;";
+        command.Parameters.AddWithValue("$timestamp", FormatTimestamp(timestamp));
+        command.Parameters.AddWithValue("$id", alertEventId);
+        command.ExecuteNonQuery();
     }
 
     private static string FormatTimestamp(DateTimeOffset value) => value.ToString("O", CultureInfo.InvariantCulture);
