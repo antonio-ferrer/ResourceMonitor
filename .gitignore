@@ -68,3 +68,6 @@ Thumbs.db
 
 # Claude Code local tooling (not part of the project)
 .claude/
+
+# Local publish/release artifacts (distribuídos via GitHub Releases, não versionados)
+publish/
