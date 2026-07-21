@@ -1,0 +1,130 @@
+<Window x:Class="ResourceMonitor.Gui.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:ResourceMonitor.Gui"
+        xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+        mc:Ignorable="d"
+        Title="ResourceMonitor" Height="700" Width="1000">
+    <TabControl x:Name="RootTabControl">
+
+        <TabItem Header="Monitoramento">
+            <Grid x:Name="MonitoringTabRoot" Margin="16">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <UniformGrid Grid.Row="0" Columns="2" IsEnabled="{Binding CanEditSettings}">
+                    <StackPanel Margin="0,0,16,8">
+                        <Label Content="Intervalo de amostragem (s)" />
+                        <TextBox Text="{Binding SampleIntervalSeconds, UpdateSourceTrigger=PropertyChanged}" />
+                    </StackPanel>
+                    <StackPanel Margin="0,0,16,8">
+                        <Label Content="Amostras seguidas p/ disparar alerta" />
+                        <TextBox Text="{Binding ConsecutiveBreachesToAlert, UpdateSourceTrigger=PropertyChanged}" />
+                    </StackPanel>
+                    <StackPanel Margin="0,0,16,8">
+                        <Label Content="Amostras seguidas p/ recuperar" />
+                        <TextBox Text="{Binding ConsecutiveRecoveriesToClear, UpdateSourceTrigger=PropertyChanged}" />
+                    </StackPanel>
+                    <StackPanel Margin="0,0,16,8">
+                        <Label Content="Top N processos no snapshot" />
+                        <TextBox Text="{Binding TopProcessCount, UpdateSourceTrigger=PropertyChanged}" />
+                    </StackPanel>
+                    <StackPanel Margin="0,0,16,8">
+                        <Label Content="Segundos antes do pico (janela)" />
+                        <TextBox Text="{Binding PreEventSeconds, UpdateSourceTrigger=PropertyChanged}" />
+                    </StackPanel>
+                    <StackPanel Margin="0,0,16,8">
+                        <Label Content="Segundos depois do pico (janela)" />
+                        <TextBox Text="{Binding PostEventSeconds, UpdateSourceTrigger=PropertyChanged}" />
+                    </StackPanel>
+                    <StackPanel Margin="0,0,16,8">
+                        <Label Content="Limite CPU (%)" />
+                        <TextBox Text="{Binding CpuPercent, UpdateSourceTrigger=PropertyChanged}" />
+                    </StackPanel>
+                    <StackPanel Margin="0,0,16,8">
+                        <Label Content="Limite RAM (%)" />
+                        <TextBox Text="{Binding RamPercent, UpdateSourceTrigger=PropertyChanged}" />
+                    </StackPanel>
+                    <StackPanel Margin="0,0,16,8">
+                        <Label Content="Espaço livre mínimo em disco (%)" />
+                        <TextBox Text="{Binding DiskFreePercentMin, UpdateSourceTrigger=PropertyChanged}" />
+                    </StackPanel>
+                    <StackPanel Margin="0,0,16,8">
+                        <Label Content="Limite de I/O de disco (%)" />
+                        <TextBox Text="{Binding DiskIoPercent, UpdateSourceTrigger=PropertyChanged}" />
+                    </StackPanel>
+                </UniformGrid>
+
+                <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,16,0,16">
+                    <Button Content="Salvar" Command="{Binding SaveCommand}" Padding="12,4" Margin="0,0,8,0" />
+                    <Button Content="Restaurar padrões" Command="{Binding RestoreDefaultsCommand}" Padding="12,4" Margin="0,0,8,0" />
+                    <Button Content="Iniciar" Command="{Binding StartCommand}" Padding="12,4" Margin="0,0,8,0" />
+                    <Button Content="Parar" Command="{Binding StopCommand}" Padding="12,4" />
+                </StackPanel>
+
+                <StackPanel Grid.Row="2" VerticalAlignment="Top">
+                    <TextBlock Text="{Binding StatusText}" FontWeight="Bold" Margin="0,0,0,4" />
+                    <TextBlock Text="{Binding LastSampleText}" />
+                </StackPanel>
+            </Grid>
+        </TabItem>
+
+        <TabItem Header="Dados">
+            <Grid x:Name="DataTabRoot" Margin="16">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="1*" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="1.4*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <TextBlock Grid.Row="0" Text="Dados correntes (cache ao vivo)" FontWeight="Bold" Margin="0,0,0,4" />
+                <DataGrid Grid.Row="1" ItemsSource="{Binding CurrentSamples}"
+                          AutoGenerateColumns="True" IsReadOnly="True" Margin="0,0,0,12" />
+
+                <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,8" VerticalAlignment="Center">
+                    <TextBlock Text="Base de picos" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,16,0" />
+                    <Label Content="De:" VerticalAlignment="Center" />
+                    <DatePicker SelectedDate="{Binding FromDate}" Margin="4,0,12,0" />
+                    <Label Content="Até:" VerticalAlignment="Center" />
+                    <DatePicker SelectedDate="{Binding ToDate}" Margin="4,0,12,0" />
+                    <Button Content="Atualizar" Command="{Binding RefreshCommand}" Padding="12,4" />
+                </StackPanel>
+
+                <DataGrid Grid.Row="3" ItemsSource="{Binding Events}" SelectedItem="{Binding SelectedEvent}"
+                          AutoGenerateColumns="True" IsReadOnly="True" />
+
+                <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,8,0,0">
+                    <Button Content="Exportar CSV" Command="{Binding ExportCsvCommand}" Padding="12,4" Margin="0,0,8,0" />
+                    <Button Content="Ver gráfico" Command="{Binding ViewChartCommand}" Padding="12,4" Margin="0,0,8,0" />
+                    <Button Content="Apagar dados" Command="{Binding ClearDataCommand}" Padding="12,4" Margin="0,0,16,0" />
+                    <TextBlock Text="{Binding StatusText}" VerticalAlignment="Center" />
+                </StackPanel>
+            </Grid>
+        </TabItem>
+
+        <TabItem Header="Gráficos">
+            <Grid x:Name="ChartTabRoot" Margin="16">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="1*" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="1*" />
+                </Grid.RowDefinitions>
+
+                <TextBlock Grid.Row="0" Text="{Binding LiveStatusText, StringFormat='Dados correntes (ao vivo): {0}'}" Margin="0,0,0,8" FontWeight="Bold" />
+                <wv2:WebView2 Grid.Row="1" x:Name="LiveChartWebView" Margin="0,0,0,16" />
+
+                <TextBlock Grid.Row="2" Text="{Binding StatusText, StringFormat='Base de picos: {0}'}" Margin="0,0,0,8" FontWeight="Bold" />
+                <wv2:WebView2 Grid.Row="3" x:Name="PeakChartWebView" />
+            </Grid>
+        </TabItem>
+
+    </TabControl>
+</Window>

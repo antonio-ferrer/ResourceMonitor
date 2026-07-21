@@ -1,0 +1,7 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/ResourceMonitor.Core/ResourceMonitor.Core.csproj" />
+    <Project Path="src/ResourceMonitor.Gui/ResourceMonitor.Gui.csproj" />
+    <Project Path="src/ResourceMonitor/ResourceMonitor.csproj" />
+  </Folder>
+</Solution>
