@@ -6,6 +6,7 @@
         xmlns:local="clr-namespace:ResourceMonitor.Gui"
         xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
         mc:Ignorable="d"
+        Icon="Assets/app.ico"
         Title="ResourceMonitor" Height="700" Width="1000">
     <TabControl x:Name="RootTabControl">
 
@@ -15,6 +16,7 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
                 <UniformGrid Grid.Row="0" Columns="2" IsEnabled="{Binding CanEditSettings}">
@@ -64,13 +66,18 @@
                     <Button Content="Salvar" Command="{Binding SaveCommand}" Padding="12,4" Margin="0,0,8,0" />
                     <Button Content="Restaurar padrões" Command="{Binding RestoreDefaultsCommand}" Padding="12,4" Margin="0,0,8,0" />
                     <Button Content="Iniciar" Command="{Binding StartCommand}" Padding="12,4" Margin="0,0,8,0" />
-                    <Button Content="Parar" Command="{Binding StopCommand}" Padding="12,4" />
+                    <Button Content="Parar" Command="{Binding StopCommand}" Padding="12,4" Margin="0,0,16,0" />
+                    <CheckBox Content="Iniciar com o Windows" IsChecked="{Binding StartWithWindows}" VerticalAlignment="Center" />
                 </StackPanel>
 
                 <StackPanel Grid.Row="2" VerticalAlignment="Top">
                     <TextBlock Text="{Binding StatusText}" FontWeight="Bold" Margin="0,0,0,4" />
                     <TextBlock Text="{Binding LastSampleText}" />
                 </StackPanel>
+
+                <TextBlock Grid.Row="3" HorizontalAlignment="Right" Margin="0,16,0,0" Foreground="Gray" FontSize="11">
+                    <Hyperlink NavigateUri="https://icons8.com" RequestNavigate="OnCreditHyperlinkRequestNavigate">Ícone por Icons8</Hyperlink>
+                </TextBlock>
             </Grid>
         </TabItem>
 

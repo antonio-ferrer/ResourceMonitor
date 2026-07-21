@@ -2,6 +2,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using ResourceMonitor.Alerting;
 using ResourceMonitor.Configuration;
+using ResourceMonitor.Gui;
 using ResourceMonitor.Monitoring;
 using ResourceMonitor.Sampling;
 using Application = System.Windows.Application;
@@ -27,6 +28,7 @@ public partial class MonitoringViewModel : ObservableObject
     [ObservableProperty] private bool isRunning;
     [ObservableProperty] private string statusText = "Parado.";
     [ObservableProperty] private string lastSampleText = "Sem amostras ainda.";
+    [ObservableProperty] private bool startWithWindows;
 
     public bool CanEditSettings => !IsRunning;
 
@@ -37,6 +39,7 @@ public partial class MonitoringViewModel : ObservableObject
 
         LoadFrom(initialSettings);
         IsRunning = _monitoringService.IsRunning;
+        StartWithWindows = AutoStartManager.IsEnabled();
 
         _monitoringService.SampleCollected += OnSampleCollected;
         _monitoringService.AlertRaised += OnAlertRaised;
@@ -137,6 +140,8 @@ public partial class MonitoringViewModel : ObservableObject
             StatusText = $"{kind}: {alertEvent.Metric} = {alertEvent.RawValue:F1}";
         });
     }
+
+    partial void OnStartWithWindowsChanged(bool value) => AutoStartManager.SetEnabled(value);
 
     private void OnFaulted(object? sender, Exception ex)
     {

@@ -8,7 +8,7 @@ App para Windows que monitora o uso de CPU, RAM e disco, e registra automaticame
 - **Alertas configuráveis** por limite (ex: CPU > 90%, RAM > 85%), com histerese (N amostras seguidas violando o limite antes de disparar, M amostras seguidas normais antes de considerar recuperado) pra não gerar ruído com picos momentâneos.
 - **Captura de janela de pico**: quando um alerta dispara, o app guarda automaticamente as amostras de alguns segundos antes e depois do pico (mais o snapshot dos processos que mais consumiam CPU/RAM naquele momento) numa base SQLite permanente — sem precisar gravar o histórico completo o tempo todo.
 - **Interface gráfica** com ícone na bandeja do Windows:
-  - Aba **Monitoramento**: editar os parâmetros, iniciar/parar, restaurar valores padrão.
+  - Aba **Monitoramento**: editar os parâmetros, iniciar/parar, restaurar valores padrão, e opção de iniciar automaticamente com o Windows (minimizado na bandeja, já monitorando).
   - Aba **Dados**: grid com os dados correntes (cache ao vivo) e outro com a base de picos (histórico persistido), com exportação pra CSV e opção de apagar a base.
   - Aba **Gráficos**: gráfico ao vivo do uso atual e gráfico da janela capturada em torno de um alerta selecionado, renderizados via WebView2 (Edge embutido).
 - **App de console** equivalente, pra rodar sem interface gráfica (ex: como tarefa agendada).
@@ -56,6 +56,10 @@ dotnet run --project src/ResourceMonitor
 # GUI
 dotnet run --project src/ResourceMonitor.Gui
 ```
+
+## Créditos
+
+Ícone do app: ["Performance" icon by Icons8](https://icons8.com/icon/CEZqMfdFYPeb/performance-2).
 
 ## Licença
 

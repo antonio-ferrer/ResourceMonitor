@@ -1,3 +1,4 @@
+using System.Drawing;
 using System.Windows;
 using System.Windows.Forms;
 using ResourceMonitor.Configuration;
@@ -26,9 +27,20 @@ public partial class App : Application
 
         SetupTrayIcon();
 
+        // Passado pela entrada de registro de "iniciar com o Windows" (ver AutoStartManager) —
+        // sobe direto pra bandeja, já monitorando, sem popup de janela.
+        var startMinimized = e.Args.Contains("--minimized");
+        if (startMinimized)
+        {
+            MonitoringService.Start(Settings, DataDirectory);
+        }
+
         var mainWindow = new MainWindow();
         MainWindow = mainWindow;
-        mainWindow.Show();
+        if (!startMinimized)
+        {
+            mainWindow.Show();
+        }
     }
 
     private void SetupTrayIcon()
@@ -40,9 +52,14 @@ public partial class App : Application
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Sair", null, (_, _) => ExitApplication());
 
+        // Assembly.Location aponta pro .dll gerenciado, que não carrega o ícone do ApplicationIcon
+        // (isso fica embutido no apphost .exe) — por isso extrai do processo em execução.
+        var exePath = Environment.ProcessPath;
+        var appIcon = (exePath is not null ? Icon.ExtractAssociatedIcon(exePath) : null) ?? SystemIcons.Application;
+
         _notifyIcon = new NotifyIcon
         {
-            Icon = System.Drawing.SystemIcons.Application,
+            Icon = appIcon,
             Visible = true,
             Text = "ResourceMonitor",
             ContextMenuStrip = menu,
