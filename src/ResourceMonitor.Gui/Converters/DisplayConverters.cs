@@ -44,6 +44,24 @@ public sealed class DurationMinutesDisplayConverter : IValueConverter
         throw new NotSupportedException();
 }
 
+// Tendência diária guarda espaço LIVRE (ver DailyAggregateRow), mas a exibição segue "consumo"
+// (mesma direção de CPU/RAM/I/O: subiu = mais usado) pra não misturar sentidos na mesma grid.
+public sealed class DiskUsageFromFreeConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object parameter, CultureInfo culture)
+    {
+        if (value is double freePercent)
+        {
+            return (100 - freePercent).ToString("N1", culture) + "%";
+        }
+
+        return string.Empty;
+    }
+
+    public object ConvertBack(object? value, Type targetType, object parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}
+
 // Timestamps são gravados/lidos em UTC (ver PermanentDatabase/CacheDatabase) — esse converter
 // passa pra hora local antes de formatar, senão a grid mostra a hora errada pro usuário.
 public sealed class LocalDateTimeConverter : IValueConverter

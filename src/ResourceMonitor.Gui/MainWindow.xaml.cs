@@ -21,6 +21,9 @@ public partial class MainWindow : Window
     private bool _peakWebViewReady;
     private string? _pendingPeakJson;
 
+    private bool _trendWebViewReady;
+    private string? _pendingTrendJson;
+
     private bool _reportWebViewReady;
     private string? _pendingReportJson;
 
@@ -48,7 +51,12 @@ public partial class MainWindow : Window
         _dataViewModel.ViewChartRequested += OnViewChartRequested;
         _chartViewModel.PeakSamplesReady += OnPeakSamplesReady;
         _chartViewModel.LiveSamplesReady += OnLiveSamplesReady;
+        _chartViewModel.DailyTrendReady += OnDailyTrendReady;
         _reportViewModel.ReportReady += OnReportReady;
+
+        // Só depois de assinar DailyTrendReady acima — chamado dentro do construtor do
+        // ChartViewModel dispararia o evento antes de existir alguém escutando.
+        _chartViewModel.LoadDailyTrendCommand.Execute(null);
 
         Loaded += OnLoaded;
         RootTabControl.SelectionChanged += OnTabControlSelectionChanged;
@@ -87,6 +95,18 @@ public partial class MainWindow : Window
             }
         };
         PeakChartWebView.CoreWebView2.Navigate(chartHtmlUri);
+
+        await TrendChartWebView.EnsureCoreWebView2Async();
+        TrendChartWebView.CoreWebView2.NavigationCompleted += (_, _) =>
+        {
+            _trendWebViewReady = true;
+            if (_pendingTrendJson is { } json)
+            {
+                _pendingTrendJson = null;
+                _ = TrendChartWebView.ExecuteScriptAsync($"renderDailyTrend({json})");
+            }
+        };
+        TrendChartWebView.CoreWebView2.Navigate(chartHtmlUri);
     }
 
     private bool _reportWebViewInitStarted;
@@ -145,6 +165,18 @@ public partial class MainWindow : Window
         else
         {
             _pendingLiveJson = json;
+        }
+    }
+
+    private void OnDailyTrendReady(object? sender, string json)
+    {
+        if (_trendWebViewReady)
+        {
+            _ = TrendChartWebView.ExecuteScriptAsync($"renderDailyTrend({json})");
+        }
+        else
+        {
+            _pendingTrendJson = json;
         }
     }
 

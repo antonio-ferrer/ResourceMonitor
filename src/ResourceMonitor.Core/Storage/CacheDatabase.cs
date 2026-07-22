@@ -98,6 +98,32 @@ public sealed class CacheDatabase : IDisposable
         }
     }
 
+    // Limpeza manual do painel "Limpeza" na aba Dados — diferente de Prune, que só descarta
+    // o que já saiu da janela de retenção; aqui o usuário pediu pra esvaziar tudo agora.
+    public void ClearAll()
+    {
+        lock (_lock)
+        {
+            using var transaction = _connection.BeginTransaction();
+
+            using (var deleteDisks = _connection.CreateCommand())
+            {
+                deleteDisks.Transaction = transaction;
+                deleteDisks.CommandText = "DELETE FROM CacheDiskSamples;";
+                deleteDisks.ExecuteNonQuery();
+            }
+
+            using (var deleteSamples = _connection.CreateCommand())
+            {
+                deleteSamples.Transaction = transaction;
+                deleteSamples.CommandText = "DELETE FROM CacheSamples;";
+                deleteSamples.ExecuteNonQuery();
+            }
+
+            transaction.Commit();
+        }
+    }
+
     public void Prune(DateTimeOffset cutoffUtc)
     {
         lock (_lock)

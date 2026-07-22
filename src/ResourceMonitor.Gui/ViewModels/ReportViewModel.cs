@@ -53,15 +53,20 @@ public partial class ReportViewModel : ObservableObject
             .OrderBy(e => e.Timestamp)
             .ToList();
 
+        var dailyTrend = _alertEventQueries.GetDailyAggregates(
+            databasePath, DateOnly.FromDateTime(effectiveFrom), DateOnly.FromDateTime(effectiveTo));
+
         var hardware = HardwareInfoReader.Capture();
-        var payload = BuildPayload(events, hardware, effectiveFrom, effectiveTo);
+        var payload = BuildPayload(events, hardware, effectiveFrom, effectiveTo, dailyTrend);
         var json = JsonSerializer.Serialize(payload);
 
         StatusText = $"Relatório gerado: {events.Count} evento(s) no período.";
         ReportReady?.Invoke(this, json);
     }
 
-    private object BuildPayload(List<AlertEpisodeRow> events, HardwareInfo hardware, DateTime effectiveFrom, DateTime effectiveTo)
+    private object BuildPayload(
+        List<AlertEpisodeRow> events, HardwareInfo hardware, DateTime effectiveFrom, DateTime effectiveTo,
+        List<DailyAggregateRow> dailyTrend)
     {
         var withDuration = events.Where(e => e.DurationMinutes.HasValue).ToList();
         var ongoingCount = events.Count - withDuration.Count;
@@ -129,6 +134,19 @@ public partial class ReportViewModel : ObservableObject
                             : $"{(sum / groupWithDuration.Count).ToString("N1", PtBr)} min",
                     };
                 }),
+            dailyTrendSystemDrive = dailyTrend.Count > 0 ? dailyTrend[0].SystemDrive : "—",
+            // Valores numéricos (não texto formatado) — o gráfico de canvas precisa plotar
+            // as coordenadas, diferente do resto do relatório que só exibe rótulos prontos.
+            // Disco vira "em uso" (100 - livre) pra seguir a mesma direção das outras 3 linhas
+            // (subiu = mais consumo), em vez de misturar com "espaço livre" (subiu = bom).
+            dailyTrend = dailyTrend.Select(d => new
+            {
+                dateLabel = d.Date.ToString("dd/MM", PtBr),
+                avgCpu = Math.Round(d.AvgCpuRawPercent, 1),
+                avgRam = Math.Round(d.AvgRamRawPercent, 1),
+                avgIo = Math.Round(d.AvgIoPercent, 1),
+                avgDiskUsage = Math.Round(100 - d.AvgDiskFreePercent, 1),
+            }),
             events = events.Select(e => new
             {
                 timestamp = e.Timestamp.ToLocalTime().ToString("dd/MM HH:mm:ss", PtBr),
@@ -139,8 +157,6 @@ public partial class ReportViewModel : ObservableObject
                 rawLabel = $"{e.RawValue.ToString("N1", PtBr)}%",
                 adjustedLabel = e.AdjustedValue is { } adjusted ? $"{adjusted.ToString("N1", PtBr)}%" : "—",
                 thresholdLabel = $"{e.Threshold.ToString("N1", PtBr)}%",
-                statusClass = e.DurationMinutes is null ? "ongoing" : e.IsInterrupted ? "interrupted" : "ok",
-                statusLabel = e.DurationMinutes is null ? "Em andamento" : e.IsInterrupted ? "Interrompido" : "Completo",
             }),
         };
     }

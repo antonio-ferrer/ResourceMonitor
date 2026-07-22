@@ -29,6 +29,17 @@ public sealed record ProcessSnapshotRow(
     double RamMb,
     double IoKbPerSec);
 
+// Médias já calculadas (Sum/SampleCount) — pensado pra tendência de uso ao longo de dias,
+// não pra alerta. AvgDiskFreePercent é só do disco do sistema (ver MonitoringService).
+public sealed record DailyAggregateRow(
+    DateOnly Date,
+    int SampleCount,
+    double AvgCpuRawPercent,
+    double AvgRamRawPercent,
+    double AvgIoPercent,
+    double AvgDiskFreePercent,
+    string SystemDrive);
+
 // Consultas de leitura pra GUI — abre uma conexão curta por chamada, pensado pra uso
 // interativo (grid, export, gráfico), não pro loop de monitoramento.
 public sealed class AlertEventQueries
@@ -260,6 +271,48 @@ public sealed class AlertEventQueries
                 reader.GetDouble(3),
                 reader.GetDouble(4),
                 reader.GetDouble(5)));
+        }
+
+        return results;
+    }
+
+    public List<DailyAggregateRow> GetDailyAggregates(string databasePath, DateOnly? from, DateOnly? to)
+    {
+        if (!File.Exists(databasePath))
+        {
+            return new List<DailyAggregateRow>();
+        }
+
+        // Garante que um banco de uma versão anterior do app (sem a tabela DailyAggregates)
+        // já esteja migrado antes de consultar — a conexão abaixo é somente leitura.
+        PermanentDatabase.EnsureSchema(databasePath);
+
+        using var connection = new SqliteConnection($"Data Source={databasePath};Mode=ReadOnly");
+        connection.Open();
+
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT Date, SampleCount, CpuRawSum, RamRawSum, IoPercentSum, DiskFreePercentSum, SystemDrive
+            FROM DailyAggregates
+            WHERE ($from IS NULL OR Date >= $from) AND ($to IS NULL OR Date <= $to)
+            ORDER BY Date;
+            """;
+        command.Parameters.AddWithValue("$from", (object?)from?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? DBNull.Value);
+        command.Parameters.AddWithValue("$to", (object?)to?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? DBNull.Value);
+
+        var results = new List<DailyAggregateRow>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            var sampleCount = reader.GetInt32(1);
+            results.Add(new DailyAggregateRow(
+                DateOnly.Parse(reader.GetString(0), CultureInfo.InvariantCulture),
+                sampleCount,
+                reader.GetDouble(2) / sampleCount,
+                reader.GetDouble(3) / sampleCount,
+                reader.GetDouble(4) / sampleCount,
+                reader.GetDouble(5) / sampleCount,
+                reader.GetString(6)));
         }
 
         return results;

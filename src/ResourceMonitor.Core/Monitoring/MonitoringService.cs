@@ -27,6 +27,10 @@ public sealed class MonitoringService : IDisposable
         (IReadOnlyList<ResourceSample>?)_cache?.GetSamplesInRange(DateTimeOffset.UtcNow.AddHours(-1), DateTimeOffset.UtcNow)
             ?? Array.Empty<ResourceSample>();
 
+    // Painel "Limpeza" na aba Dados — sem efeito se não estiver monitorando (o cache só
+    // existe enquanto o loop roda; parado, já não há nada pra limpar).
+    public void ClearCache() => _cache?.ClearAll();
+
     public void Start(MonitorSettings settings, string dataDirectory)
     {
         if (IsRunning)
@@ -83,6 +87,12 @@ public sealed class MonitoringService : IDisposable
         // aberto aqui (Parar manual, crash), esses IDs são marcados como interrompidos no finally.
         var openAlerts = new Dictionary<string, long>();
 
+        // Ponto diário (CPU/RAM/IO/espaço em disco): reaproveita a amostra que o tick já
+        // calculou, sem sampling extra — só captura de ~5 em 5min, não a cada tick.
+        var dailyAggregateInterval = TimeSpan.FromMinutes(5);
+        DateTimeOffset? lastDailyAggregateSample = null;
+        var systemDrive = Path.GetPathRoot(Environment.SystemDirectory) ?? "C:\\";
+
         try
         {
             do
@@ -133,6 +143,15 @@ public sealed class MonitoringService : IDisposable
                 foreach (var warning in thresholdMonitor.EvaluateDiskFreeSpace(sample))
                 {
                     DiskSpaceLow?.Invoke(this, warning);
+                }
+
+                if (lastDailyAggregateSample is null || sample.Timestamp - lastDailyAggregateSample >= dailyAggregateInterval)
+                {
+                    var today = DateOnly.FromDateTime(sample.Timestamp.ToLocalTime().Date);
+                    var systemDisk = sample.Disks.FirstOrDefault(d => string.Equals(d.DriveName, systemDrive, StringComparison.OrdinalIgnoreCase));
+                    permanent.UpsertDailyAggregate(
+                        today, sample.CpuRawPercent, sample.RamRawPercent, systemDisk?.IoPercent ?? 0, systemDisk?.FreePercent ?? 0, systemDrive);
+                    lastDailyAggregateSample = sample.Timestamp;
                 }
 
                 captureCoordinator.FlushReady(sample.Timestamp, cache, permanent);

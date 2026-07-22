@@ -92,6 +92,21 @@ public sealed class PermanentDatabase : IDisposable
                 IoPercent REAL NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_disksamples_sample ON DiskSamples(SampleId);
+
+            -- Um registro por dia (data local), independente de alerta — soma+contador em vez
+            -- de já gravar a média, pra dar pra continuar acumulando corretamente num Parar+Iniciar
+            -- no mesmo dia (ver UpsertDailyAggregate). Alimenta tendência de uso pra decisão de
+            -- upgrade de hardware, não o fluxo de alerta.
+            CREATE TABLE IF NOT EXISTS DailyAggregates (
+                Date TEXT PRIMARY KEY,
+                SampleCount INTEGER NOT NULL,
+                CpuRawSum REAL NOT NULL,
+                RamRawSum REAL NOT NULL,
+                IoPercentSum REAL NOT NULL,
+                DiskFreePercentSum REAL NOT NULL,
+                SystemDrive TEXT NOT NULL,
+                LastUpdatedUtc TEXT NOT NULL
+            );
             """;
             command.ExecuteNonQuery();
         }
@@ -246,13 +261,44 @@ public sealed class PermanentDatabase : IDisposable
         command.ExecuteNonQuery();
     }
 
+    // Capturado a cada ~5min pelo loop de monitoramento (ver MonitoringService), não a cada
+    // tick — o ON CONFLICT soma em cima do que já existe, então um Parar+Iniciar no mesmo dia
+    // simplesmente continua a média de onde parou, sem precisar guardar estado em memória.
+    public void UpsertDailyAggregate(
+        DateOnly date, double cpuRawPercent, double ramRawPercent, double ioPercent, double diskFreePercent, string systemDrive)
+    {
+        using var command = _connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO DailyAggregates (Date, SampleCount, CpuRawSum, RamRawSum, IoPercentSum, DiskFreePercentSum, SystemDrive, LastUpdatedUtc)
+            VALUES ($date, 1, $cpuRaw, $ramRaw, $ioPercent, $diskFreePercent, $systemDrive, $now)
+            ON CONFLICT(Date) DO UPDATE SET
+                SampleCount = SampleCount + 1,
+                CpuRawSum = CpuRawSum + $cpuRaw,
+                RamRawSum = RamRawSum + $ramRaw,
+                IoPercentSum = IoPercentSum + $ioPercent,
+                DiskFreePercentSum = DiskFreePercentSum + $diskFreePercent,
+                SystemDrive = $systemDrive,
+                LastUpdatedUtc = $now;
+            """;
+        command.Parameters.AddWithValue("$date", date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$cpuRaw", cpuRawPercent);
+        command.Parameters.AddWithValue("$ramRaw", ramRawPercent);
+        command.Parameters.AddWithValue("$ioPercent", ioPercent);
+        command.Parameters.AddWithValue("$diskFreePercent", diskFreePercent);
+        command.Parameters.AddWithValue("$systemDrive", systemDrive);
+        command.Parameters.AddWithValue("$now", FormatTimestamp(DateTimeOffset.UtcNow));
+        command.ExecuteNonQuery();
+    }
+
     private static string FormatTimestamp(DateTimeOffset value) => value.ToString("O", CultureInfo.InvariantCulture);
 
-    // Só deve ser chamado com o monitoramento parado — abre sua própria conexão e não
-    // coordena com uma instância de PermanentDatabase que porventura já esteja escrevendo.
-    public static void ClearAllData(string databasePath)
+    // Limpeza seletiva (painel "Limpeza" na aba Dados) — só deve ser chamada com o
+    // monitoramento parado, abre sua própria conexão e não coordena com uma instância de
+    // PermanentDatabase que porventura já esteja escrevendo. O cache em memória (CacheDatabase)
+    // é uma categoria separada, sem tabela em disco — ver MonitoringService.ClearCache.
+    public static void ClearData(string databasePath, bool clearPeaks, bool clearTrend)
     {
-        if (!File.Exists(databasePath))
+        if (!File.Exists(databasePath) || (!clearPeaks && !clearTrend))
         {
             return;
         }
@@ -260,14 +306,24 @@ public sealed class PermanentDatabase : IDisposable
         using var connection = new SqliteConnection($"Data Source={databasePath}");
         connection.Open();
 
+        var statements = new List<string>();
+        if (clearPeaks)
+        {
+            statements.Add("DELETE FROM DiskSamples;");
+            statements.Add("DELETE FROM Samples;");
+            statements.Add("DELETE FROM AlertProcessSnapshots;");
+            statements.Add("DELETE FROM AlertEvents;");
+        }
+
+        if (clearTrend)
+        {
+            statements.Add("DELETE FROM DailyAggregates;");
+        }
+
+        statements.Add("VACUUM;");
+
         using var command = connection.CreateCommand();
-        command.CommandText = """
-            DELETE FROM DiskSamples;
-            DELETE FROM Samples;
-            DELETE FROM AlertProcessSnapshots;
-            DELETE FROM AlertEvents;
-            VACUUM;
-            """;
+        command.CommandText = string.Join("\n", statements);
         command.ExecuteNonQuery();
     }
 

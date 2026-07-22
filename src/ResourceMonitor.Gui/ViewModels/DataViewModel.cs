@@ -3,7 +3,6 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using ResourceMonitor.Diagnostics;
 using ResourceMonitor.Monitoring;
-using ResourceMonitor.Sampling;
 using ResourceMonitor.Storage;
 using MessageBox = System.Windows.MessageBox;
 using MessageBoxButton = System.Windows.MessageBoxButton;
@@ -11,13 +10,6 @@ using MessageBoxImage = System.Windows.MessageBoxImage;
 using SaveFileDialog = Microsoft.Win32.SaveFileDialog;
 
 namespace ResourceMonitor.Gui.ViewModels;
-
-public sealed record CurrentSampleRow(
-    DateTimeOffset Timestamp,
-    double CpuRawPercent,
-    double CpuAdjustedPercent,
-    double RamRawPercent,
-    double RamAdjustedPercent);
 
 public partial class DataViewModel : ObservableObject
 {
@@ -31,7 +23,11 @@ public partial class DataViewModel : ObservableObject
     [ObservableProperty] private AlertEpisodeRow? selectedEpisode;
     [ObservableProperty] private string statusText = string.Empty;
 
-    public ObservableCollection<CurrentSampleRow> CurrentSamples { get; } = new();
+    [ObservableProperty] private bool clearCacheSelected = true;
+    [ObservableProperty] private bool clearTrendSelected = true;
+    [ObservableProperty] private bool clearPeaksSelected = true;
+
+    public ObservableCollection<DailyAggregateRow> DailyTrend { get; } = new();
 
     public ObservableCollection<AlertEpisodeRow> Episodes { get; } = new();
 
@@ -48,22 +44,7 @@ public partial class DataViewModel : ObservableObject
         _alertEventQueries = alertEventQueries;
         _traceLogger = traceLogger;
 
-        _monitoringService.SampleCollected += OnSampleCollected;
-
         Refresh();
-    }
-
-    private void OnSampleCollected(object? sender, ResourceSample sample)
-    {
-        System.Windows.Application.Current.Dispatcher.Invoke(() =>
-        {
-            CurrentSamples.Clear();
-            foreach (var s in _monitoringService.GetCurrentSamples())
-            {
-                CurrentSamples.Add(new CurrentSampleRow(
-                    s.Timestamp, s.CpuRawPercent, s.CpuAdjustedPercent, s.RamRawPercent, s.RamAdjustedPercent));
-            }
-        });
     }
 
     [RelayCommand]
@@ -87,8 +68,19 @@ public partial class DataViewModel : ObservableObject
             Episodes.Add(row);
         }
 
-        StatusText = $"{Episodes.Count} evento(s) na base de picos.";
-        _traceLogger.Trace("DataViewModel", $"Refresh concluído. Episodes.Count={Episodes.Count}");
+        // Mesmo filtro De/Até da Base de picos, só convertido pra DateOnly.
+        DateOnly? fromDay = FromDate is { } fd2 ? DateOnly.FromDateTime(fd2) : null;
+        DateOnly? toDay = ToDate is { } td2 ? DateOnly.FromDateTime(td2) : null;
+        var trendRows = _alertEventQueries.GetDailyAggregates(databasePath, fromDay, toDay);
+
+        DailyTrend.Clear();
+        foreach (var row in trendRows)
+        {
+            DailyTrend.Add(row);
+        }
+
+        StatusText = $"{Episodes.Count} evento(s) na base de picos. {DailyTrend.Count} dia(s) na tendência.";
+        _traceLogger.Trace("DataViewModel", $"Refresh concluído. Episodes.Count={Episodes.Count} DailyTrend.Count={DailyTrend.Count}");
     }
 
     [RelayCommand]
@@ -109,6 +101,24 @@ public partial class DataViewModel : ObservableObject
         StatusText = $"Exportado pra {dialog.FileName}";
     }
 
+    [RelayCommand]
+    private void ExportDailyTrendCsv()
+    {
+        var dialog = new SaveFileDialog
+        {
+            Filter = "CSV (*.csv)|*.csv",
+            FileName = $"tendencia_diaria_{DateTime.Now:yyyyMMdd_HHmmss}.csv",
+        };
+
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        CsvExporter.ExportDailyTrend(dialog.FileName, DailyTrend);
+        StatusText = $"Exportado pra {dialog.FileName}";
+    }
+
     [RelayCommand(CanExecute = nameof(HasSelection))]
     private void ViewChart()
     {
@@ -123,21 +133,34 @@ public partial class DataViewModel : ObservableObject
     partial void OnSelectedEpisodeChanged(AlertEpisodeRow? value) => ViewChartCommand.NotifyCanExecuteChanged();
 
     [RelayCommand]
-    private void ClearData()
+    private void ClearSelected()
     {
-        if (_monitoringService.IsRunning)
+        if (!ClearCacheSelected && !ClearTrendSelected && !ClearPeaksSelected)
+        {
+            return;
+        }
+
+        // Cache é em memória, sem tabela em disco — só picos/tendência exigem o
+        // monitoramento parado (ClearData abre sua própria conexão, sem coordenar com
+        // uma instância de PermanentDatabase que porventura já esteja escrevendo).
+        if ((ClearTrendSelected || ClearPeaksSelected) && _monitoringService.IsRunning)
         {
             MessageBox.Show(
-                "Pare o monitoramento antes de apagar os dados.",
+                "Pare o monitoramento antes de limpar a tendência diária ou a base de picos.",
                 "ResourceMonitor",
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning);
             return;
         }
 
+        var items = new List<string>();
+        if (ClearCacheSelected) items.Add("cache (amostras em memória)");
+        if (ClearTrendSelected) items.Add("tendência diária");
+        if (ClearPeaksSelected) items.Add("base de picos (eventos, amostras e processos)");
+
         var confirm = MessageBox.Show(
-            "Isso apaga permanentemente todos os eventos, snapshots e amostras da base de picos. Continuar?",
-            "Apagar dados",
+            $"Isso apaga permanentemente: {string.Join(", ", items)}. Continuar?",
+            "Limpar dados",
             MessageBoxButton.YesNo,
             MessageBoxImage.Warning);
 
@@ -146,8 +169,17 @@ public partial class DataViewModel : ObservableObject
             return;
         }
 
-        PermanentDatabase.ClearAllData(_getDatabasePath());
+        if (ClearCacheSelected)
+        {
+            _monitoringService.ClearCache();
+        }
+
+        if (ClearTrendSelected || ClearPeaksSelected)
+        {
+            PermanentDatabase.ClearData(_getDatabasePath(), ClearPeaksSelected, ClearTrendSelected);
+        }
+
         Refresh();
-        StatusText = "Base de picos apagada.";
+        StatusText = "Limpeza concluída.";
     }
 }

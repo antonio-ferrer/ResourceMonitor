@@ -13,6 +13,7 @@
         <conv:MetricDisplayConverter x:Key="MetricDisplayConverter" />
         <conv:LocalDateTimeConverter x:Key="LocalDateTimeConverter" />
         <conv:DurationMinutesDisplayConverter x:Key="DurationMinutesDisplayConverter" />
+        <conv:DiskUsageFromFreeConverter x:Key="DiskUsageFromFreeConverter" />
     </Window.Resources>
     <TabControl x:Name="RootTabControl">
 
@@ -141,35 +142,44 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="1.4*" />
                     <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
-                <TextBlock Grid.Row="0" Text="Dados correntes (cache ao vivo)" FontWeight="Bold" Margin="0,0,0,4" />
-                <DataGrid Grid.Row="1" ItemsSource="{Binding CurrentSamples}"
+                <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,4" VerticalAlignment="Center">
+                    <TextBlock Text="Tendência diária" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,16,0" />
+                    <Button Content="Exportar CSV" Command="{Binding ExportDailyTrendCsvCommand}" Padding="12,4" />
+                </StackPanel>
+                <DataGrid Grid.Row="1" ItemsSource="{Binding DailyTrend}"
                           AutoGenerateColumns="False" IsReadOnly="True" Margin="0,0,0,12">
                     <DataGrid.Columns>
-                        <DataGridTextColumn Binding="{Binding Timestamp, Converter={StaticResource LocalDateTimeConverter}}">
+                        <DataGridTextColumn Binding="{Binding Date, StringFormat='{}{0:dd/MM/yyyy}'}">
                             <DataGridTextColumn.Header>
-                                <TextBlock Text="Horário" ToolTip="Data e hora da amostra" />
+                                <TextBlock Text="Data" ToolTip="Dia (horário local) a que a média se refere" />
                             </DataGridTextColumn.Header>
                         </DataGridTextColumn>
-                        <DataGridTextColumn Binding="{Binding CpuRawPercent, StringFormat='{}{0:N1}%'}">
+                        <DataGridTextColumn Binding="{Binding AvgCpuRawPercent, StringFormat='{}{0:N1}%'}">
                             <DataGridTextColumn.Header>
-                                <TextBlock Text="CPU (bruto)" ToolTip="Uso total de CPU no momento, incluindo os processos excluídos" />
+                                <TextBlock Text="CPU médio" ToolTip="Uso médio de CPU no dia (bruto, sem descontar processos excluídos)" />
                             </DataGridTextColumn.Header>
                         </DataGridTextColumn>
-                        <DataGridTextColumn Binding="{Binding CpuAdjustedPercent, StringFormat='{}{0:N1}%'}">
+                        <DataGridTextColumn Binding="{Binding AvgRamRawPercent, StringFormat='{}{0:N1}%'}">
                             <DataGridTextColumn.Header>
-                                <TextBlock Text="CPU (líquido)" ToolTip="Uso de CPU descontando os processos da lista de exclusão" />
+                                <TextBlock Text="RAM médio" ToolTip="Uso médio de RAM no dia (bruto, sem descontar processos excluídos)" />
                             </DataGridTextColumn.Header>
                         </DataGridTextColumn>
-                        <DataGridTextColumn Binding="{Binding RamRawPercent, StringFormat='{}{0:N1}%'}">
+                        <DataGridTextColumn Binding="{Binding AvgIoPercent, StringFormat='{}{0:N1}%'}">
                             <DataGridTextColumn.Header>
-                                <TextBlock Text="RAM (bruto)" ToolTip="Uso total de RAM no momento, incluindo os processos excluídos" />
+                                <TextBlock Text="Disco I/O médio" ToolTip="Uso médio de I/O de disco no dia" />
                             </DataGridTextColumn.Header>
                         </DataGridTextColumn>
-                        <DataGridTextColumn Binding="{Binding RamAdjustedPercent, StringFormat='{}{0:N1}%'}">
+                        <DataGridTextColumn Binding="{Binding AvgDiskFreePercent, Converter={StaticResource DiskUsageFromFreeConverter}}">
                             <DataGridTextColumn.Header>
-                                <TextBlock Text="RAM (líquido)" ToolTip="Uso de RAM descontando os processos da lista de exclusão" />
+                                <TextBlock Text="Disco em uso" ToolTip="Percentual médio ocupado no disco do sistema (100% - espaço livre)" />
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Binding="{Binding SystemDrive}">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="Unidade" ToolTip="Disco do sistema usado pra medir espaço livre/uso" />
                             </DataGridTextColumn.Header>
                         </DataGridTextColumn>
                     </DataGrid.Columns>
@@ -233,9 +243,23 @@
                 <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,8,0,0">
                     <Button Content="Exportar CSV" Command="{Binding ExportCsvCommand}" Padding="12,4" Margin="0,0,8,0" />
                     <Button Content="Ver gráfico" Command="{Binding ViewChartCommand}" Padding="12,4" Margin="0,0,8,0" />
-                    <Button Content="Apagar dados" Command="{Binding ClearDataCommand}" Padding="12,4" Margin="0,0,16,0" />
                     <TextBlock Text="{Binding StatusText}" VerticalAlignment="Center" />
                 </StackPanel>
+
+                <Border Grid.Row="5" BorderBrush="Gray" BorderThickness="1" CornerRadius="3" Padding="10" Margin="0,12,0,0">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="Limpeza:" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,16,0" />
+                        <CheckBox Content="Cache (amostras em memória)" IsChecked="{Binding ClearCacheSelected}"
+                                  VerticalAlignment="Center" Margin="0,0,16,0"
+                                  ToolTip="Amostras ao vivo mantidas em memória enquanto o monitoramento roda — não tem arquivo em disco" />
+                        <CheckBox Content="Tendência diária" IsChecked="{Binding ClearTrendSelected}"
+                                  VerticalAlignment="Center" Margin="0,0,16,0" />
+                        <CheckBox Content="Base de picos" IsChecked="{Binding ClearPeaksSelected}"
+                                  VerticalAlignment="Center" Margin="0,0,16,0"
+                                  ToolTip="Eventos, amostras da janela de pico e snapshots de processos" />
+                        <Button Content="Limpar selecionados" Command="{Binding ClearSelectedCommand}" Padding="12,4" />
+                    </StackPanel>
+                </Border>
             </Grid>
         </TabItem>
 
@@ -246,6 +270,8 @@
                     <RowDefinition Height="1*" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="1*" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="0.8*" />
                 </Grid.RowDefinitions>
 
                 <TextBlock Grid.Row="0" Text="{Binding LiveStatusText, StringFormat='Dados correntes (ao vivo): {0}'}" Margin="0,0,0,8" FontWeight="Bold" />
@@ -306,6 +332,9 @@
                     </StackPanel>
                     </ScrollViewer>
                 </Grid>
+
+                <TextBlock Grid.Row="4" Text="{Binding TrendStatusText}" Margin="0,16,0,8" FontWeight="Bold" />
+                <wv2:WebView2 Grid.Row="5" x:Name="TrendChartWebView" />
             </Grid>
         </TabItem>
 
