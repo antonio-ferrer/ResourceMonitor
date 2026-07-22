@@ -78,6 +78,7 @@ function draw(data) {
 
   plotLine('cpu', '#2563eb');
   plotLine('ram', '#f97316');
+  plotLine('io', '#16a34a');
 
   ctx.fillStyle = '#2563eb';
   ctx.fillRect(paddingLeft, 4, 10, 10);
@@ -88,6 +89,11 @@ function draw(data) {
   ctx.fillRect(paddingLeft + 60, 4, 10, 10);
   ctx.fillStyle = '#333';
   ctx.fillText('RAM', paddingLeft + 74, 13);
+
+  ctx.fillStyle = '#16a34a';
+  ctx.fillRect(paddingLeft + 120, 4, 10, 10);
+  ctx.fillStyle = '#333';
+  ctx.fillText('Disco I/O', paddingLeft + 134, 13);
 }
 
 resizeCanvas();

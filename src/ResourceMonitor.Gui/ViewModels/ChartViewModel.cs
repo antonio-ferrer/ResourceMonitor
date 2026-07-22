@@ -19,6 +19,7 @@ public partial class ChartViewModel : ObservableObject
 
     public ObservableCollection<ProcessSnapshotRow> TopByCpu { get; } = new();
     public ObservableCollection<ProcessSnapshotRow> TopByRam { get; } = new();
+    public ObservableCollection<ProcessSnapshotRow> TopByIo { get; } = new();
 
     public event EventHandler<string>? PeakSamplesReady;
     public event EventHandler<string>? LiveSamplesReady;
@@ -52,6 +53,7 @@ public partial class ChartViewModel : ObservableObject
         var snapshots = _alertEventQueries.GetProcessSnapshotsForAlertEvent(databasePath, alertEventId);
         TopByCpu.Clear();
         TopByRam.Clear();
+        TopByIo.Clear();
         foreach (var snapshot in snapshots)
         {
             if (snapshot.Kind == "Cpu")
@@ -61,6 +63,10 @@ public partial class ChartViewModel : ObservableObject
             else if (snapshot.Kind == "Ram")
             {
                 TopByRam.Add(snapshot);
+            }
+            else if (snapshot.Kind == "Io")
+            {
+                TopByIo.Add(snapshot);
             }
         }
 
@@ -82,6 +88,9 @@ public partial class ChartViewModel : ObservableObject
             timestamp = s.Timestamp.ToLocalTime().ToString("HH:mm:ss"),
             cpu = Math.Round(s.CpuAdjustedPercent, 1),
             ram = Math.Round(s.RamAdjustedPercent, 1),
+            // "% Disk Time" é um contador agregado (_Total) — o mesmo valor vale pra toda
+            // unidade, então basta pegar de qualquer uma presente na amostra.
+            io = s.Disks.Count > 0 ? Math.Round(s.Disks[0].IoPercent, 1) : 0,
         });
 
         return JsonSerializer.Serialize(payload);

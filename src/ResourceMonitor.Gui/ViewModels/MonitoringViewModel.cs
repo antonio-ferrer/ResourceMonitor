@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.Input;
 using ResourceMonitor.Alerting;
 using ResourceMonitor.Configuration;
 using ResourceMonitor.Gui;
+using ResourceMonitor.Gui.Notifications;
 using ResourceMonitor.Monitoring;
 using ResourceMonitor.Sampling;
 using Application = System.Windows.Application;
@@ -14,6 +15,7 @@ public partial class MonitoringViewModel : ObservableObject
 {
     private readonly MonitoringService _monitoringService;
     private readonly string _dataDirectory;
+    private readonly ITrayNotifier _trayNotifier;
 
     [ObservableProperty] private int sampleIntervalSeconds;
     [ObservableProperty] private int consecutiveBreachesToAlert;
@@ -23,7 +25,6 @@ public partial class MonitoringViewModel : ObservableObject
     [ObservableProperty] private int postEventSeconds;
     [ObservableProperty] private double cpuPercent;
     [ObservableProperty] private double ramPercent;
-    [ObservableProperty] private double diskFreePercentMin;
     [ObservableProperty] private double diskIoPercent;
 
     [ObservableProperty] private bool isRunning;
@@ -33,13 +34,16 @@ public partial class MonitoringViewModel : ObservableObject
     [ObservableProperty] private string newExcludedProcessPattern = string.Empty;
 
     public ObservableCollection<string> ExcludedProcesses { get; } = new();
+    public ObservableCollection<DiskThresholdRow> DiskThresholds { get; } = new();
 
     public bool CanEditSettings => !IsRunning;
 
-    public MonitoringViewModel(MonitoringService monitoringService, MonitorSettings initialSettings, string dataDirectory)
+    public MonitoringViewModel(
+        MonitoringService monitoringService, MonitorSettings initialSettings, string dataDirectory, ITrayNotifier trayNotifier)
     {
         _monitoringService = monitoringService;
         _dataDirectory = dataDirectory;
+        _trayNotifier = trayNotifier;
 
         LoadFrom(initialSettings);
         IsRunning = _monitoringService.IsRunning;
@@ -55,6 +59,7 @@ public partial class MonitoringViewModel : ObservableObject
 
         _monitoringService.SampleCollected += OnSampleCollected;
         _monitoringService.AlertRaised += OnAlertRaised;
+        _monitoringService.DiskSpaceLow += OnDiskSpaceLow;
         _monitoringService.Faulted += OnFaulted;
     }
 
@@ -68,13 +73,26 @@ public partial class MonitoringViewModel : ObservableObject
         PostEventSeconds = settings.PostEventSeconds;
         CpuPercent = settings.Thresholds.CpuPercent;
         RamPercent = settings.Thresholds.RamPercent;
-        DiskFreePercentMin = settings.Thresholds.DiskFreePercentMin;
         DiskIoPercent = settings.Thresholds.DiskIoPercent;
 
         ExcludedProcesses.Clear();
         foreach (var pattern in settings.ExcludedProcesses)
         {
             ExcludedProcesses.Add(pattern);
+        }
+
+        // Lista de discos é auto-populada a partir dos discos fixos reais da máquina (não do
+        // JSON) — só o valor de MinFreePercent vem do settings, quando já existia; disco novo
+        // (nunca configurado) recebe o default. Disco salvo que sumiu da máquina não aparece.
+        DiskThresholds.Clear();
+        var savedThresholds = settings.Thresholds.DiskFreeThresholds
+            .ToDictionary(t => t.DriveName, t => t.MinFreePercent, StringComparer.OrdinalIgnoreCase);
+        foreach (var driveName in DiskMonitor.GetFixedDriveNames())
+        {
+            var minFreePercent = savedThresholds.TryGetValue(driveName, out var savedValue)
+                ? savedValue
+                : DiskThreshold.DefaultMinFreePercent;
+            DiskThresholds.Add(new DiskThresholdRow(driveName, minFreePercent));
         }
     }
 
@@ -91,8 +109,10 @@ public partial class MonitoringViewModel : ObservableObject
         {
             CpuPercent = CpuPercent,
             RamPercent = RamPercent,
-            DiskFreePercentMin = DiskFreePercentMin,
             DiskIoPercent = DiskIoPercent,
+            DiskFreeThresholds = DiskThresholds
+                .Select(r => new DiskThreshold { DriveName = r.DriveName, MinFreePercent = r.MinFreePercent })
+                .ToList(),
         },
     };
 
@@ -180,6 +200,17 @@ public partial class MonitoringViewModel : ObservableObject
         {
             var kind = alertEvent.EventType == AlertEventType.Start ? "ALERTA" : "RECUPERADO";
             StatusText = $"{kind}: {alertEvent.Metric} = {alertEvent.RawValue:F1}";
+        });
+    }
+
+    private void OnDiskSpaceLow(object? sender, DiskSpaceWarning warning)
+    {
+        Application.Current.Dispatcher.Invoke(() =>
+        {
+            StatusText = $"AVISO: espaço em disco baixo em {warning.DriveName} ({warning.FreePercent:F1}%)";
+            _trayNotifier.ShowWarning(
+                "Alerta de espaço em disco",
+                $"{warning.DriveName}: {warning.FreePercent:F1}% livre (mínimo {warning.MinFreePercent:F1}%)");
         });
     }
 

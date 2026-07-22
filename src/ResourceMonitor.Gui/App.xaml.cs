@@ -6,6 +6,7 @@ using System.Windows.Forms;
 using System.Windows.Markup;
 using ResourceMonitor.Configuration;
 using ResourceMonitor.Diagnostics;
+using ResourceMonitor.Gui.Notifications;
 using ResourceMonitor.Monitoring;
 using ResourceMonitor.Storage;
 using Application = System.Windows.Application;
@@ -26,6 +27,8 @@ public partial class App : Application
     public ITraceLogger TraceLogger { get; private set; } = new NullTraceLogger();
 
     public AlertEventQueries AlertEventQueries { get; private set; } = new(new NullTraceLogger());
+
+    public ITrayNotifier TrayNotifier { get; private set; } = null!;
 
     public bool IsExiting { get; private set; }
 
@@ -97,6 +100,8 @@ public partial class App : Application
             ContextMenuStrip = menu,
         };
         _notifyIcon.DoubleClick += (_, _) => ShowMainWindow();
+
+        TrayNotifier = new TrayNotifier(_notifyIcon);
     }
 
     public void ShowMainWindow()

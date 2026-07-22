@@ -22,6 +22,7 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
@@ -60,17 +61,13 @@
                         <TextBox Text="{Binding RamPercent, UpdateSourceTrigger=PropertyChanged}" />
                     </StackPanel>
                     <StackPanel Margin="0,0,16,8">
-                        <Label Content="Espaço livre mínimo em disco (%)" />
-                        <TextBox Text="{Binding DiskFreePercentMin, UpdateSourceTrigger=PropertyChanged}" />
-                    </StackPanel>
-                    <StackPanel Margin="0,0,16,8">
                         <Label Content="Limite de I/O de disco (%)" />
                         <TextBox Text="{Binding DiskIoPercent, UpdateSourceTrigger=PropertyChanged}" />
                     </StackPanel>
                 </UniformGrid>
 
                 <StackPanel Grid.Row="1" Margin="0,0,0,16" IsEnabled="{Binding CanEditSettings}">
-                    <Label Content="Processos excluídos do cálculo (aceita * como coringa, ex: discord*)" Padding="0,0,0,4" />
+                    <Label Content="Processos que não disparam os limites (aceita * como coringa, ex: notepad*)" Padding="0,0,0,4" />
                     <ItemsControl ItemsSource="{Binding ExcludedProcesses}">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
@@ -96,7 +93,28 @@
                     </StackPanel>
                 </StackPanel>
 
-                <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,16">
+                <StackPanel Grid.Row="2" Margin="0,0,0,16" IsEnabled="{Binding CanEditSettings}">
+                    <Label Content="Espaço livre mínimo por disco (%)" Padding="0,0,0,4" />
+                    <ItemsControl ItemsSource="{Binding DiskThresholds}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <WrapPanel />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border BorderBrush="Gray" BorderThickness="1" CornerRadius="3" Margin="0,0,8,8" Padding="8,4">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="{Binding DriveName}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                        <TextBox Text="{Binding MinFreePercent, UpdateSourceTrigger=PropertyChanged}" Width="50" />
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+
+                <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,0,0,16">
                     <Button Content="Salvar" Command="{Binding SaveCommand}" Padding="12,4" Margin="0,0,8,0" />
                     <Button Content="Restaurar padrões" Command="{Binding RestoreDefaultsCommand}" Padding="12,4" Margin="0,0,8,0" />
                     <Button Content="Iniciar" Command="{Binding StartCommand}" Padding="12,4" Margin="0,0,8,0" />
@@ -104,12 +122,12 @@
                     <CheckBox Content="Iniciar com o Windows" IsChecked="{Binding StartWithWindows}" VerticalAlignment="Center" />
                 </StackPanel>
 
-                <StackPanel Grid.Row="3" VerticalAlignment="Top">
+                <StackPanel Grid.Row="4" VerticalAlignment="Top">
                     <TextBlock Text="{Binding StatusText}" FontWeight="Bold" Margin="0,0,0,4" />
                     <TextBlock Text="{Binding LastSampleText}" />
                 </StackPanel>
 
-                <TextBlock Grid.Row="4" HorizontalAlignment="Right" Margin="0,16,0,0" Foreground="Gray" FontSize="11">
+                <TextBlock Grid.Row="5" HorizontalAlignment="Right" Margin="0,16,0,0" Foreground="Gray" FontSize="11">
                     <Hyperlink NavigateUri="https://icons8.com" RequestNavigate="OnCreditHyperlinkRequestNavigate">Ícone por Icons8</Hyperlink>
                 </TextBlock>
             </Grid>
@@ -242,7 +260,8 @@
 
                     <wv2:WebView2 Grid.Column="0" x:Name="PeakChartWebView" />
 
-                    <StackPanel Grid.Column="1" Margin="12,0,0,0">
+                    <ScrollViewer Grid.Column="1" Margin="12,0,0,0" VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
                         <TextBlock Text="Top processos por CPU" FontWeight="Bold" Margin="0,0,0,4"
                                    ToolTip="Os processos que mais consumiam CPU no momento do pico" />
                         <ItemsControl ItemsSource="{Binding TopByCpu}">
@@ -270,7 +289,22 @@
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
+
+                        <TextBlock Text="Top processos por I/O de disco" FontWeight="Bold" Margin="0,16,0,4"
+                                   ToolTip="Os processos que mais liam/escreviam em disco no momento do pico" />
+                        <ItemsControl ItemsSource="{Binding TopByIo}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Margin="0,0,0,2" TextTrimming="CharacterEllipsis">
+                                        <Run Text="{Binding ProcessName, Mode=OneWay}" />
+                                        <Run Text=" — " />
+                                        <Run Text="{Binding IoKbPerSec, StringFormat='{}{0:N0} KB/s', Mode=OneWay}" />
+                                    </TextBlock>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
                     </StackPanel>
+                    </ScrollViewer>
                 </Grid>
             </Grid>
         </TabItem>

@@ -60,4 +60,12 @@ public sealed class DiskMonitor : IDisposable
     {
         _diskTimeCounter?.Dispose();
     }
+
+    // Mesmo filtro de SampleDisks(), mas sem instanciar a classe (não toca no PerformanceCounter) —
+    // usado pra popular a lista de discos na tela de Monitoramento antes de iniciar o monitoramento.
+    public static IReadOnlyList<string> GetFixedDriveNames() =>
+        DriveInfo.GetDrives()
+            .Where(d => d.IsReady && d.DriveType == DriveType.Fixed)
+            .Select(d => d.Name)
+            .ToList();
 }

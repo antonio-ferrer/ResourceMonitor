@@ -37,6 +37,13 @@ monitoringService.AlertRaised += (_, alertEvent) =>
     }
 };
 
+monitoringService.DiskSpaceLow += (_, warning) =>
+{
+    Console.WriteLine(
+        $"  >> AVISO: espaço em disco baixo em {warning.DriveName} " +
+        $"({warning.FreePercent:F1}% livre, mínimo {warning.MinFreePercent:F1}%)");
+};
+
 monitoringService.Faulted += (_, ex) =>
 {
     Console.Error.WriteLine($"Erro no monitoramento: {ex}");

@@ -8,6 +8,11 @@ public sealed class ThresholdMonitor
     private readonly MonitorSettings _settings;
     private readonly Dictionary<string, MetricState> _states = new();
 
+    // Espaço livre em disco não usa o pipeline de episódio (ver EvaluateDiskFreeSpace) — tem
+    // sua própria histerese, mais simples, sem peak-tracking.
+    private readonly Dictionary<string, DiskFreeState> _diskStates = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _disabledDrives = new(StringComparer.OrdinalIgnoreCase);
+
     public ThresholdMonitor(MonitorSettings settings)
     {
         _settings = settings;
@@ -25,14 +30,64 @@ public sealed class ThresholdMonitor
 
         foreach (var disk in sample.Disks)
         {
-            EvaluateMetric(events, "DiscoLivre", disk.DriveName, disk.FreePercent, null,
-                _settings.Thresholds.DiskFreePercentMin, isAboveThreshold: false, sample.Timestamp);
-
             EvaluateMetric(events, "DiscoIO", disk.DriveName, disk.IoPercent, null,
                 _settings.Thresholds.DiskIoPercent, isAboveThreshold: true, sample.Timestamp);
         }
 
         return events;
+    }
+
+    // Espaço em disco é "especialista": threshold por unidade, notificação pontual (não gera
+    // AlertEvent/episódio). Itera pelos discos CONFIGURADOS (não pelos presentes na amostra) pra
+    // conseguir detectar quando um disco configurado sumiu e desabilitá-lo pro resto da execução.
+    public IReadOnlyList<DiskSpaceWarning> EvaluateDiskFreeSpace(ResourceSample sample)
+    {
+        var warnings = new List<DiskSpaceWarning>();
+        var disksByName = sample.Disks.ToDictionary(d => d.DriveName, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var threshold in _settings.Thresholds.DiskFreeThresholds)
+        {
+            var driveName = threshold.DriveName;
+            if (_disabledDrives.Contains(driveName))
+            {
+                continue; // já ficou indisponível antes nessa execução — só volta num próximo Start
+            }
+
+            if (!disksByName.TryGetValue(driveName, out var disk))
+            {
+                _disabledDrives.Add(driveName); // sumiu da lista de discos fixos — desabilita pro resto da execução
+                continue;
+            }
+
+            if (!_diskStates.TryGetValue(driveName, out var state))
+            {
+                state = new DiskFreeState();
+                _diskStates[driveName] = state;
+            }
+
+            var isBreaching = disk.FreePercent < threshold.MinFreePercent;
+            if (isBreaching)
+            {
+                state.ConsecutiveBreaches++;
+                state.ConsecutiveRecoveries = 0;
+                if (!state.IsActive && state.ConsecutiveBreaches >= _settings.ConsecutiveBreachesToAlert)
+                {
+                    state.IsActive = true;
+                    warnings.Add(new DiskSpaceWarning(driveName, disk.FreePercent, threshold.MinFreePercent, sample.Timestamp));
+                }
+            }
+            else
+            {
+                state.ConsecutiveRecoveries++;
+                state.ConsecutiveBreaches = 0;
+                if (state.IsActive && state.ConsecutiveRecoveries >= _settings.ConsecutiveRecoveriesToClear)
+                {
+                    state.IsActive = false; // permite notificar de novo numa próxima queda
+                }
+            }
+        }
+
+        return warnings;
     }
 
     private void EvaluateMetric(
@@ -99,5 +154,12 @@ public sealed class ThresholdMonitor
         public int ConsecutiveRecoveries;
         public double PeakValue;
         public DateTimeOffset? PeakTimestamp;
+    }
+
+    private sealed class DiskFreeState
+    {
+        public bool IsActive;
+        public int ConsecutiveBreaches;
+        public int ConsecutiveRecoveries;
     }
 }

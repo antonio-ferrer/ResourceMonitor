@@ -63,7 +63,8 @@ public sealed class PermanentDatabase : IDisposable
                 ProcessName TEXT NOT NULL,
                 ProcessId INTEGER NOT NULL,
                 CpuPercent REAL NOT NULL,
-                RamMb REAL NOT NULL
+                RamMb REAL NOT NULL,
+                IoKbPerSec REAL NOT NULL DEFAULT 0
             );
             CREATE INDEX IF NOT EXISTS idx_snapshots_alert ON AlertProcessSnapshots(AlertEventId);
 
@@ -99,6 +100,7 @@ public sealed class PermanentDatabase : IDisposable
         // serem adicionadas — então garante que bancos antigos ganhem as colunas novas também.
         EnsureColumnExists(connection, "AlertEvents", "LastActiveUtc", "TEXT NULL");
         EnsureColumnExists(connection, "AlertEvents", "Interrupted", "INTEGER NOT NULL DEFAULT 0");
+        EnsureColumnExists(connection, "AlertProcessSnapshots", "IoKbPerSec", "REAL NOT NULL DEFAULT 0");
     }
 
     private static void EnsureColumnExists(SqliteConnection connection, string table, string column, string columnDefinition)
@@ -158,8 +160,8 @@ public sealed class PermanentDatabase : IDisposable
             using var command = _connection.CreateCommand();
             command.Transaction = transaction;
             command.CommandText = """
-                INSERT INTO AlertProcessSnapshots (AlertEventId, Kind, ProcessName, ProcessId, CpuPercent, RamMb)
-                VALUES ($alertEventId, $kind, $processName, $processId, $cpuPercent, $ramMb);
+                INSERT INTO AlertProcessSnapshots (AlertEventId, Kind, ProcessName, ProcessId, CpuPercent, RamMb, IoKbPerSec)
+                VALUES ($alertEventId, $kind, $processName, $processId, $cpuPercent, $ramMb, $ioKbPerSec);
                 """;
             command.Parameters.AddWithValue("$alertEventId", alertEventId);
             command.Parameters.AddWithValue("$kind", kind);
@@ -167,6 +169,7 @@ public sealed class PermanentDatabase : IDisposable
             command.Parameters.AddWithValue("$processId", process.Id);
             command.Parameters.AddWithValue("$cpuPercent", process.CpuPercent);
             command.Parameters.AddWithValue("$ramMb", process.RamMb);
+            command.Parameters.AddWithValue("$ioKbPerSec", process.IoKbPerSec);
             command.ExecuteNonQuery();
         }
 

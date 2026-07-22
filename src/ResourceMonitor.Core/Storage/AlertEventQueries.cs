@@ -26,7 +26,8 @@ public sealed record ProcessSnapshotRow(
     string ProcessName,
     int ProcessId,
     double CpuPercent,
-    double RamMb);
+    double RamMb,
+    double IoKbPerSec);
 
 // Consultas de leitura pra GUI — abre uma conexão curta por chamada, pensado pra uso
 // interativo (grid, export, gráfico), não pro loop de monitoramento.
@@ -101,6 +102,16 @@ public sealed class AlertEventQueries
 
             if (row.EventType == "Start")
             {
+                // Já havia um Start aberto pra essa chave (nunca recebeu End) — normalmente porque
+                // uma execução anterior foi interrompida antes do alerta recuperar. Emite ele como
+                // episódio próprio ANTES de abrir o novo: senão a sobrescrita abaixo o descartaria
+                // silenciosamente (o pico antigo "sumia" quando o monitoramento reiniciava e
+                // disparava um novo Start pra mesma métrica).
+                if (openStarts.TryGetValue(key, out var previousOpen))
+                {
+                    episodes.Add(BuildOpenEpisode(previousOpen));
+                }
+
                 openStarts[key] = (row.Id, row.Timestamp, row.Metric, row.DriveName, row.RawValue,
                     row.AdjustedValue, row.Threshold, row.LastActiveUtc, row.Interrupted);
             }
@@ -114,19 +125,11 @@ public sealed class AlertEventQueries
             }
         }
 
-        // Starts sem End: se foi marcado como interrompido (Parar manual, crash), mostra a
-        // duração mínima conhecida via heartbeat; senão é genuinamente "em andamento" agora.
+        // Starts sem End (fim da lista inteira): mesmo caso do desvio acima, só que pro último
+        // Start aberto de cada chave, que não teve um Start seguinte pra forçar a emissão dele.
         foreach (var start in openStarts.Values)
         {
-            double? durationMinutes = null;
-            if (start.Interrupted && start.LastActiveUtc is { } lastActive)
-            {
-                durationMinutes = (lastActive - start.Timestamp).TotalMinutes;
-            }
-
-            episodes.Add(new AlertEpisodeRow(
-                start.Id, start.Timestamp, start.Metric, start.DriveName, durationMinutes, start.Interrupted,
-                start.RawValue, start.AdjustedValue, start.Threshold));
+            episodes.Add(BuildOpenEpisode(start));
         }
 
         var results = episodes
@@ -138,6 +141,23 @@ public sealed class AlertEventQueries
             $"GetAlertEpisodes retornou {results.Count} episódio(s) de {rawRows.Count} evento(s) crus.");
 
         return results;
+    }
+
+    // Um Start sem End correspondente: se foi marcado como interrompido (Parar manual, crash),
+    // mostra a duração mínima conhecida via heartbeat; senão é genuinamente "em andamento" agora.
+    private static AlertEpisodeRow BuildOpenEpisode(
+        (long Id, DateTimeOffset Timestamp, string Metric, string? DriveName, double RawValue,
+            double? AdjustedValue, double Threshold, DateTimeOffset? LastActiveUtc, bool Interrupted) start)
+    {
+        double? durationMinutes = null;
+        if (start.Interrupted && start.LastActiveUtc is { } lastActive)
+        {
+            durationMinutes = (lastActive - start.Timestamp).TotalMinutes;
+        }
+
+        return new AlertEpisodeRow(
+            start.Id, start.Timestamp, start.Metric, start.DriveName, durationMinutes, start.Interrupted,
+            start.RawValue, start.AdjustedValue, start.Threshold);
     }
 
     public List<ResourceSample> GetSamplesForAlertEvent(string databasePath, long alertEventId)
@@ -213,12 +233,16 @@ public sealed class AlertEventQueries
             return new List<ProcessSnapshotRow>();
         }
 
+        // Garante que um banco de uma versão anterior do app (sem IoKbPerSec) já esteja
+        // migrado antes de consultar essa coluna — a conexão abaixo é somente leitura.
+        PermanentDatabase.EnsureSchema(databasePath);
+
         using var connection = new SqliteConnection($"Data Source={databasePath};Mode=ReadOnly");
         connection.Open();
 
         using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT Kind, ProcessName, ProcessId, CpuPercent, RamMb
+            SELECT Kind, ProcessName, ProcessId, CpuPercent, RamMb, IoKbPerSec
             FROM AlertProcessSnapshots
             WHERE AlertEventId = $alertEventId
             ORDER BY Kind, CpuPercent DESC;
@@ -234,7 +258,8 @@ public sealed class AlertEventQueries
                 reader.GetString(1),
                 reader.GetInt32(2),
                 reader.GetDouble(3),
-                reader.GetDouble(4)));
+                reader.GetDouble(4),
+                reader.GetDouble(5)));
         }
 
         return results;

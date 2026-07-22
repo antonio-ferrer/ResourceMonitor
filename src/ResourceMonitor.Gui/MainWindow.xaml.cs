@@ -31,7 +31,7 @@ public partial class MainWindow : Window
             Title += " - modo depuração";
         }
 
-        _monitoringViewModel = new MonitoringViewModel(app.MonitoringService, app.Settings, app.DataDirectory);
+        _monitoringViewModel = new MonitoringViewModel(app.MonitoringService, app.Settings, app.DataDirectory, app.TrayNotifier);
         _dataViewModel = new DataViewModel(app.MonitoringService, GetDatabasePath, app.AlertEventQueries, app.TraceLogger);
         _chartViewModel = new ChartViewModel(app.MonitoringService, GetDatabasePath, app.AlertEventQueries);
 

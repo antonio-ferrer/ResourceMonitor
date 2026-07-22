@@ -18,6 +18,7 @@ public sealed class MonitoringService : IDisposable
 
     public event EventHandler<ResourceSample>? SampleCollected;
     public event EventHandler<AlertEvent>? AlertRaised;
+    public event EventHandler<DiskSpaceWarning>? DiskSpaceLow;
     public event EventHandler<Exception>? Faulted;
 
     // "Dados correntes": tudo que está no cache volátil agora (a janela de retenção já se
@@ -107,9 +108,10 @@ public sealed class MonitoringService : IDisposable
                     {
                         openAlerts[key] = alertEventId;
 
-                        var (topByCpu, topByRam) = await ProcessSnapshotter.CaptureAsync(settings.TopProcessCount);
+                        var (topByCpu, topByRam, topByIo) = await ProcessSnapshotter.CaptureAsync(settings.TopProcessCount);
                         permanent.InsertProcessSnapshots(alertEventId, "Cpu", topByCpu);
                         permanent.InsertProcessSnapshots(alertEventId, "Ram", topByRam);
+                        permanent.InsertProcessSnapshots(alertEventId, "Io", topByIo);
 
                         captureCoordinator.BeginCapture(alertEventId, alertEvent.PeakTimestamp ?? alertEvent.Timestamp);
                     }
@@ -125,6 +127,12 @@ public sealed class MonitoringService : IDisposable
                 foreach (var openAlertId in openAlerts.Values)
                 {
                     permanent.UpdateLastActive(openAlertId, sample.Timestamp);
+                }
+
+                // Espaço em disco é notificação pontual, não episódio — não toca em cache/permanent.
+                foreach (var warning in thresholdMonitor.EvaluateDiskFreeSpace(sample))
+                {
+                    DiskSpaceLow?.Invoke(this, warning);
                 }
 
                 captureCoordinator.FlushReady(sample.Timestamp, cache, permanent);
