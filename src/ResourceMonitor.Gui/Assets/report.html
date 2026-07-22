@@ -1,0 +1,372 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>ResourceMonitor - Relatório</title>
+<style>
+  :root {
+    --ink: #14171d;
+    --muted: #565e6e;
+    --faint: #7c8494;
+    --line: #e2e5ea;
+    --line-strong: #c3c8d1;
+    --accent-cpu: #1d4ed8;
+    --accent-ram: #c2410c;
+    --accent-io: #15803d;
+    --danger: #b91c1c;
+    --warn: #92400e;
+    --radius: 3px;
+  }
+
+  * { box-sizing: border-box; }
+
+  /* Documento pensado pra ser impresso — fundo branco fixo, sem tema escuro, tanto na
+     tela (dentro do WebView2) quanto na impressão. */
+  html, body { background: #ffffff; color: var(--ink); margin: 0; }
+
+  body {
+    font-family: "Segoe UI", "Segoe UI Variable", ui-sans-serif, system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 32px 24px 48px;
+  }
+
+  .masthead {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    border-bottom: 2px solid var(--ink);
+    padding-bottom: 14px;
+    margin-bottom: 4px;
+  }
+  .masthead .brand {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .masthead h1 {
+    margin: 2px 0 4px;
+    font-size: 26px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .masthead .machine {
+    font-family: "Cascadia Code", "Consolas", ui-monospace, monospace;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .print-btn {
+    flex: 0 0 auto;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    color: #ffffff;
+    background: var(--ink);
+    border: none;
+    border-radius: var(--radius);
+    padding: 9px 16px;
+    cursor: pointer;
+  }
+  .print-btn:hover { opacity: 0.85; }
+  .print-btn:focus-visible { outline: 2px solid var(--accent-cpu); outline-offset: 2px; }
+
+  .meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 28px;
+    margin: 16px 0 28px;
+    font-family: "Cascadia Code", "Consolas", ui-monospace, monospace;
+    font-size: 12.5px;
+    color: var(--muted);
+  }
+  .meta-row b { color: var(--ink); font-weight: 600; }
+
+  h2 {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 12px;
+  }
+  section { margin-bottom: 32px; }
+
+  .hw-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .hw-item {
+    padding: 13px 16px;
+    border-bottom: 1px solid var(--line);
+    border-right: 1px solid var(--line);
+  }
+  .hw-item .label { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+  .hw-item .value { font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .stat { border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; }
+  .stat .label { font-size: 11.5px; color: var(--muted); margin-bottom: 6px; }
+  .stat .value {
+    font-family: "Cascadia Code", "Consolas", ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .stat .sub { font-size: 11px; color: var(--faint); margin-top: 4px; }
+
+  .metric-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .metric-table th {
+    text-align: left;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--muted);
+    border-bottom: 1px solid var(--line-strong);
+    padding: 0 10px 8px;
+  }
+  .metric-table td { padding: 10px 10px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+  .metric-table td:not(:first-child), .metric-table th:not(:first-child) { text-align: right; }
+  .metric-name { display: flex; align-items: center; gap: 8px; text-align: left !important; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; display: inline-block; }
+  .dot.cpu { background: var(--accent-cpu); }
+  .dot.ram { background: var(--accent-ram); }
+  .dot.io   { background: var(--accent-io); }
+
+  .table-wrap { overflow-x: auto; }
+  .events-table { width: 100%; min-width: 720px; border-collapse: collapse; font-size: 12.5px; }
+  .events-table th {
+    text-align: left;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--muted);
+    border-bottom: 1px solid var(--line-strong);
+    padding: 0 10px 8px;
+    white-space: nowrap;
+  }
+  .events-table td { padding: 8px 10px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .events-table tbody tr { page-break-inside: avoid; }
+  .events-table .timestamp { font-family: "Cascadia Code", "Consolas", ui-monospace, monospace; color: var(--muted); }
+  .metric-tag { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+  .num { text-align: right; }
+
+  .status-pill { display: inline-block; font-size: 10.5px; font-weight: 600; padding: 2px 8px; border-radius: 20px; border: 1px solid transparent; }
+  .status-pill.ok { color: var(--muted); }
+  .status-pill.interrupted { color: var(--danger); border-color: currentColor; }
+  .status-pill.ongoing { color: var(--warn); border-color: currentColor; }
+
+  footer {
+    margin-top: 28px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line);
+    font-size: 11px;
+    color: var(--faint);
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .empty-state { color: var(--muted); font-size: 13px; padding: 8px 0; }
+
+  @media print {
+    body { padding: 0; max-width: none; }
+    .no-print { display: none !important; }
+    section { break-inside: avoid; }
+    /* Sem isso, o min-width de 720px (pensado pra tela, com scroll horizontal) faz a
+       última coluna (Status) sair da página impressa em vez de encolher pra caber. */
+    .events-table { min-width: 0; width: 100%; font-size: 11px; }
+    .events-table th, .events-table td { padding: 6px 6px; }
+    @page { margin: 16mm 14mm; }
+  }
+</style>
+</head>
+<body>
+
+<div class="masthead">
+  <div>
+    <div class="brand">ResourceMonitor</div>
+    <h1>Relatório de eventos</h1>
+    <div class="machine" id="machineName">—</div>
+  </div>
+  <button class="print-btn no-print" onclick="window.print()">Imprimir relatório</button>
+</div>
+
+<div class="meta-row">
+  <span>Período: <b id="periodFrom">—</b> a <b id="periodTo">—</b></span>
+  <span>Gerado em: <b id="generatedAt">—</b></span>
+</div>
+
+<section>
+  <h2>Computador e hardware</h2>
+  <div class="hw-grid" id="hwGrid"></div>
+</section>
+
+<section>
+  <h2>Resumo do período</h2>
+  <div class="stat-grid" id="statGrid"></div>
+</section>
+
+<section id="secaoPorMetrica">
+  <h2>Por métrica</h2>
+  <table class="metric-table">
+    <thead>
+      <tr><th>Métrica</th><th>Eventos</th><th>Tempo total</th><th>Duração média</th></tr>
+    </thead>
+    <tbody id="metricTableBody"></tbody>
+  </table>
+</section>
+
+<section id="secaoEventos">
+  <h2>Todos os eventos</h2>
+  <div class="table-wrap">
+    <table class="events-table">
+      <thead>
+        <tr>
+          <th>Data/hora</th>
+          <th>Métrica</th>
+          <th>Unidade</th>
+          <th class="num">Duração</th>
+          <th class="num">Valor bruto</th>
+          <th class="num">Valor líquido</th>
+          <th class="num">Limite</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody id="eventsTableBody"></tbody>
+    </table>
+  </div>
+</section>
+
+<footer>
+  <span id="footnotes"></span>
+  <span>ResourceMonitor — relatório gerado localmente</span>
+</footer>
+
+<script>
+function el(tag, className, text) {
+  const e = document.createElement(tag);
+  if (className) e.className = className;
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+
+function dot(dotClass) {
+  return el('span', 'dot ' + dotClass);
+}
+
+function renderReport(data) {
+  document.getElementById('machineName').textContent = 'Computador: ' + data.machineName;
+  document.getElementById('periodFrom').textContent = data.periodFrom;
+  document.getElementById('periodTo').textContent = data.periodTo;
+  document.getElementById('generatedAt').textContent = data.generatedAt;
+
+  // Hardware
+  const hwGrid = document.getElementById('hwGrid');
+  hwGrid.innerHTML = '';
+  const hwItems = [
+    ['Sistema operacional', data.hardware.operatingSystem],
+    ['Processador', data.hardware.processorName],
+    ['Memória RAM total', data.hardware.ramTotalLabel],
+  ];
+  data.hardware.disks.forEach(d => hwItems.push([d.label, d.detail]));
+  hwItems.forEach(([label, value]) => {
+    const item = el('div', 'hw-item');
+    item.appendChild(el('div', 'label', label));
+    item.appendChild(el('div', 'value', value));
+    hwGrid.appendChild(item);
+  });
+
+  // Resumo
+  const statGrid = document.getElementById('statGrid');
+  statGrid.innerHTML = '';
+  const stats = [
+    ['Total de eventos', String(data.summary.totalEvents), data.summary.totalEventsSub],
+    ['Tempo total em alerta', data.summary.totalDurationLabel, 'mínimo conhecido*'],
+    ['Eventos interrompidos', String(data.summary.interruptedEvents), 'monitoramento parado em alerta'],
+    ['Maior pico', data.summary.biggestPeakLabel, data.summary.biggestPeakSub],
+  ];
+  stats.forEach(([label, value, sub]) => {
+    const s = el('div', 'stat');
+    s.appendChild(el('div', 'label', label));
+    s.appendChild(el('div', 'value', value));
+    if (sub) s.appendChild(el('div', 'sub', sub));
+    statGrid.appendChild(s);
+  });
+
+  // Por métrica
+  const metricBody = document.getElementById('metricTableBody');
+  metricBody.innerHTML = '';
+  if (data.byMetric.length === 0) {
+    document.getElementById('secaoPorMetrica').style.display = 'none';
+  } else {
+    document.getElementById('secaoPorMetrica').style.display = '';
+    data.byMetric.forEach(m => {
+      const tr = document.createElement('tr');
+      const nameTd = el('td', 'metric-name');
+      nameTd.appendChild(dot(m.dotClass));
+      nameTd.appendChild(document.createTextNode(m.metric));
+      tr.appendChild(nameTd);
+      tr.appendChild(el('td', null, m.eventsLabel));
+      tr.appendChild(el('td', null, m.totalLabel));
+      tr.appendChild(el('td', null, m.avgLabel));
+      metricBody.appendChild(tr);
+    });
+  }
+
+  // Eventos
+  const secaoEventos = document.getElementById('secaoEventos');
+  secaoEventos.style.display = data.includeEvents ? '' : 'none';
+  const eventsBody = document.getElementById('eventsTableBody');
+  eventsBody.innerHTML = '';
+  if (data.events.length === 0) {
+    const tr = document.createElement('tr');
+    const td = el('td', 'empty-state', 'Nenhum evento no período/filtro selecionado.');
+    td.colSpan = 8;
+    tr.appendChild(td);
+    eventsBody.appendChild(tr);
+  } else {
+    data.events.forEach(ev => {
+      const tr = document.createElement('tr');
+      tr.appendChild(el('td', 'timestamp', ev.timestamp));
+      const metricTd = el('td');
+      const tag = el('span', 'metric-tag');
+      tag.appendChild(dot(ev.dotClass));
+      tag.appendChild(document.createTextNode(ev.metric));
+      metricTd.appendChild(tag);
+      tr.appendChild(metricTd);
+      tr.appendChild(el('td', null, ev.driveName));
+      tr.appendChild(el('td', 'num', ev.durationLabel));
+      tr.appendChild(el('td', 'num', ev.rawLabel));
+      tr.appendChild(el('td', 'num', ev.adjustedLabel));
+      tr.appendChild(el('td', 'num', ev.thresholdLabel));
+      const statusTd = document.createElement('td');
+      statusTd.appendChild(el('span', 'status-pill ' + ev.statusClass, ev.statusLabel));
+      tr.appendChild(statusTd);
+      eventsBody.appendChild(tr);
+    });
+  }
+
+  // Rodapé condicional
+  const notes = [];
+  if (data.summary.hasInterrupted) {
+    notes.push('* Duração mínima conhecida — o monitoramento foi parado antes do alerta recuperar.');
+  }
+  if (data.summary.hasOngoing) {
+    notes.push('† Alerta ainda ativo no momento da geração.');
+  }
+  document.getElementById('footnotes').textContent = notes.join('  ');
+}
+</script>
+</body>
+</html>

@@ -309,5 +309,32 @@
             </Grid>
         </TabItem>
 
+        <TabItem x:Name="ReportTab" Header="Relatórios">
+            <Grid x:Name="ReportTabRoot" Margin="16">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <WrapPanel Grid.Row="0" Margin="0,0,0,8">
+                    <Label Content="De:" VerticalAlignment="Center" />
+                    <DatePicker SelectedDate="{Binding PeriodFrom}" VerticalAlignment="Center" Margin="4,0,16,0" />
+                    <Label Content="Até:" VerticalAlignment="Center" />
+                    <DatePicker SelectedDate="{Binding PeriodTo}" VerticalAlignment="Center" Margin="4,0,16,0" />
+                    <CheckBox Content="CPU" IsChecked="{Binding IncludeCpu}" VerticalAlignment="Center" Margin="0,0,10,0" />
+                    <CheckBox Content="RAM" IsChecked="{Binding IncludeRam}" VerticalAlignment="Center" Margin="0,0,10,0" />
+                    <CheckBox Content="Disco I/O" IsChecked="{Binding IncludeDiscoIo}" VerticalAlignment="Center" Margin="0,0,16,0" />
+                    <CheckBox Content="Incluir todos os eventos" IsChecked="{Binding IncludeAllEvents}" VerticalAlignment="Center" Margin="0,0,16,0"
+                              ToolTip="Se desmarcado, o relatório mostra só o resumo e a quebra por métrica, sem a tabela completa de eventos" />
+                    <Button Content="Gerar relatório" Command="{Binding GerarRelatorioCommand}" Padding="12,4" VerticalAlignment="Center" />
+                </WrapPanel>
+
+                <TextBlock Grid.Row="1" Text="{Binding StatusText}" Margin="0,0,0,8" />
+
+                <wv2:WebView2 Grid.Row="2" x:Name="ReportWebView" />
+            </Grid>
+        </TabItem>
+
     </TabControl>
 </Window>

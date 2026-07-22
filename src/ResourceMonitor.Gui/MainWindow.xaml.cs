@@ -13,12 +13,16 @@ public partial class MainWindow : Window
     private readonly MonitoringViewModel _monitoringViewModel;
     private readonly DataViewModel _dataViewModel;
     private readonly ChartViewModel _chartViewModel;
+    private readonly ReportViewModel _reportViewModel;
 
     private bool _liveWebViewReady;
     private string? _pendingLiveJson;
 
     private bool _peakWebViewReady;
     private string? _pendingPeakJson;
+
+    private bool _reportWebViewReady;
+    private string? _pendingReportJson;
 
     public MainWindow()
     {
@@ -34,16 +38,20 @@ public partial class MainWindow : Window
         _monitoringViewModel = new MonitoringViewModel(app.MonitoringService, app.Settings, app.DataDirectory, app.TrayNotifier);
         _dataViewModel = new DataViewModel(app.MonitoringService, GetDatabasePath, app.AlertEventQueries, app.TraceLogger);
         _chartViewModel = new ChartViewModel(app.MonitoringService, GetDatabasePath, app.AlertEventQueries);
+        _reportViewModel = new ReportViewModel(GetDatabasePath, app.AlertEventQueries);
 
         MonitoringTabRoot.DataContext = _monitoringViewModel;
         DataTabRoot.DataContext = _dataViewModel;
         ChartTabRoot.DataContext = _chartViewModel;
+        ReportTabRoot.DataContext = _reportViewModel;
 
         _dataViewModel.ViewChartRequested += OnViewChartRequested;
         _chartViewModel.PeakSamplesReady += OnPeakSamplesReady;
         _chartViewModel.LiveSamplesReady += OnLiveSamplesReady;
+        _reportViewModel.ReportReady += OnReportReady;
 
         Loaded += OnLoaded;
+        RootTabControl.SelectionChanged += OnTabControlSelectionChanged;
     }
 
     private static string GetDatabasePath()
@@ -81,6 +89,35 @@ public partial class MainWindow : Window
         PeakChartWebView.CoreWebView2.Navigate(chartHtmlUri);
     }
 
+    private bool _reportWebViewInitStarted;
+
+    // Iniciado só quando a aba Relatórios é selecionada pela primeira vez (não no Loaded, junto
+    // com os outros WebView2) — inicializar 3 WebView2 ao mesmo tempo numa aba ainda não
+    // visível causava o relatório não renderizar até o usuário navegar por outra aba antes.
+    private async void OnTabControlSelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (_reportWebViewInitStarted || RootTabControl.SelectedItem != ReportTab)
+        {
+            return;
+        }
+
+        _reportWebViewInitStarted = true;
+
+        var reportHtmlUri = new Uri(Path.Combine(AppContext.BaseDirectory, "Assets", "report.html")).AbsoluteUri;
+
+        await ReportWebView.EnsureCoreWebView2Async();
+        ReportWebView.CoreWebView2.NavigationCompleted += (_, _) =>
+        {
+            _reportWebViewReady = true;
+            if (_pendingReportJson is { } json)
+            {
+                _pendingReportJson = null;
+                _ = ReportWebView.ExecuteScriptAsync($"renderReport({json})");
+            }
+        };
+        ReportWebView.CoreWebView2.Navigate(reportHtmlUri);
+    }
+
     private void OnViewChartRequested(object? sender, long alertEventId)
     {
         RootTabControl.SelectedIndex = 2;
@@ -108,6 +145,18 @@ public partial class MainWindow : Window
         else
         {
             _pendingLiveJson = json;
+        }
+    }
+
+    private void OnReportReady(object? sender, string json)
+    {
+        if (_reportWebViewReady)
+        {
+            _ = ReportWebView.ExecuteScriptAsync($"renderReport({json})");
+        }
+        else
+        {
+            _pendingReportJson = json;
         }
     }
 
