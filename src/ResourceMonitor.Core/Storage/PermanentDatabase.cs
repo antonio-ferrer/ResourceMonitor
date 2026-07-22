@@ -290,7 +290,75 @@ public sealed class PermanentDatabase : IDisposable
         command.ExecuteNonQuery();
     }
 
+    // Chamado uma vez ao iniciar uma nova execução (antes do loop começar) — cobre o caso em
+    // que a execução ANTERIOR não encerrou normalmente (processo morto/kill, sem chance de
+    // rodar o finally do loop) e por isso nunca marcou seus alertas abertos como interrompidos.
+    // Reaproveita o mesmo pareamento Start/End de AlertEventQueries.GetAlertEpisodes — um Start
+    // sem End correspondente até aqui só pode ter sobrado de uma sessão anterior, já que essa
+    // sessão nova ainda não avaliou nenhuma amostra.
+    public void MarkOrphanedAlertsInterrupted()
+    {
+        using var command = _connection.CreateCommand();
+        command.CommandText = """
+            SELECT Id, TimestampUtc, EventType, Metric, DriveName, LastActiveUtc, Interrupted
+            FROM AlertEvents
+            ORDER BY TimestampUtc;
+            """;
+
+        var rawRows = new List<(long Id, DateTimeOffset Timestamp, string EventType, string Metric,
+            string? DriveName, DateTimeOffset? LastActiveUtc, bool Interrupted)>();
+        using (var reader = command.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                rawRows.Add((
+                    reader.GetInt64(0),
+                    ParseTimestamp(reader.GetString(1)),
+                    reader.GetString(2),
+                    reader.GetString(3),
+                    reader.IsDBNull(4) ? null : reader.GetString(4),
+                    reader.IsDBNull(5) ? null : ParseTimestamp(reader.GetString(5)),
+                    reader.GetInt64(6) != 0));
+            }
+        }
+
+        var openStarts = new Dictionary<string, (long Id, DateTimeOffset Timestamp, DateTimeOffset? LastActiveUtc, bool Interrupted)>();
+        foreach (var row in rawRows)
+        {
+            var key = $"{row.Metric}|{row.DriveName}";
+            if (row.EventType == "Start")
+            {
+                // Já havia um Start aberto pra essa chave — mesma situação corrigida em
+                // AlertEventQueries.GetAlertEpisodes: sem isso, o Start anterior seria perdido
+                // silenciosamente na sobrescrita abaixo em vez de marcado como órfão.
+                if (openStarts.TryGetValue(key, out var previousOpen) && !previousOpen.Interrupted)
+                {
+                    MarkInterrupted(previousOpen.Id, previousOpen.LastActiveUtc ?? previousOpen.Timestamp);
+                }
+
+                openStarts[key] = (row.Id, row.Timestamp, row.LastActiveUtc, row.Interrupted);
+            }
+            else
+            {
+                openStarts.Remove(key);
+            }
+        }
+
+        foreach (var open in openStarts.Values)
+        {
+            if (open.Interrupted)
+            {
+                continue; // já foi marcado (encerramento limpo) — nada a corrigir
+            }
+
+            MarkInterrupted(open.Id, open.LastActiveUtc ?? open.Timestamp);
+        }
+    }
+
     private static string FormatTimestamp(DateTimeOffset value) => value.ToString("O", CultureInfo.InvariantCulture);
+
+    private static DateTimeOffset ParseTimestamp(string value) =>
+        DateTimeOffset.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
 
     // Limpeza seletiva (painel "Limpeza" na aba Dados) — só deve ser chamada com o
     // monitoramento parado, abre sua própria conexão e não coordena com uma instância de

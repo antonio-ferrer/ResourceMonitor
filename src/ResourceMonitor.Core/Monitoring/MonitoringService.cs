@@ -21,6 +21,12 @@ public sealed class MonitoringService : IDisposable
     public event EventHandler<DiskSpaceWarning>? DiskSpaceLow;
     public event EventHandler<Exception>? Faulted;
 
+    // Dispara em Start()/StopAsync() independente de quem chamou — o menu da bandeja
+    // (App.xaml.cs) chama esses métodos direto, sem passar pelo MonitoringViewModel, então
+    // sem isso os botões Iniciar/Parar da janela ficavam com o estado errado depois de
+    // iniciar/parar pela bandeja.
+    public event EventHandler? RunningStateChanged;
+
     // "Dados correntes": tudo que está no cache volátil agora (a janela de retenção já se
     // auto-poda, então isso é só um limite superior generoso, não um filtro real).
     public IReadOnlyList<ResourceSample> GetCurrentSamples() =>
@@ -41,6 +47,7 @@ public sealed class MonitoringService : IDisposable
         _cts = new CancellationTokenSource();
         var token = _cts.Token;
         _loopTask = Task.Run(() => RunLoopAsync(settings, dataDirectory, token));
+        RunningStateChanged?.Invoke(this, EventArgs.Empty);
     }
 
     public async Task StopAsync()
@@ -62,6 +69,7 @@ public sealed class MonitoringService : IDisposable
         _cts.Dispose();
         _cts = null;
         _loopTask = null;
+        RunningStateChanged?.Invoke(this, EventArgs.Empty);
     }
 
     private async Task RunLoopAsync(MonitorSettings settings, string dataDirectory, CancellationToken token)
@@ -76,6 +84,11 @@ public sealed class MonitoringService : IDisposable
         using var cache = new CacheDatabase();
         _cache = cache;
         using var permanent = new PermanentDatabase(databasePath);
+
+        // Corrige alertas deixados abertos por uma execução anterior que não encerrou
+        // normalmente (processo morto/kill) — sem isso ficariam "Em andamento" pra sempre.
+        permanent.MarkOrphanedAlertsInterrupted();
+
         var captureCoordinator = new EventCaptureCoordinator(settings);
 
         var cachePruneWindow = TimeSpan.FromSeconds(

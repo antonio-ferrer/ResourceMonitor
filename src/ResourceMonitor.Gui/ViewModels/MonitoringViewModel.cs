@@ -61,6 +61,7 @@ public partial class MonitoringViewModel : ObservableObject
         _monitoringService.AlertRaised += OnAlertRaised;
         _monitoringService.DiskSpaceLow += OnDiskSpaceLow;
         _monitoringService.Faulted += OnFaulted;
+        _monitoringService.RunningStateChanged += OnRunningStateChanged;
     }
 
     private void LoadFrom(MonitorSettings settings)
@@ -160,8 +161,8 @@ public partial class MonitoringViewModel : ObservableObject
     {
         var settings = BuildSettings();
         _monitoringService.Start(settings, _dataDirectory);
-        SetRunning(true);
-        StatusText = "Monitorando...";
+        // Estado/StatusText são atualizados via RunningStateChanged (ver OnRunningStateChanged) —
+        // mesmo caminho usado quando o start vem do menu da bandeja, não só desse botão.
     }
 
     private bool CanStart() => !IsRunning;
@@ -170,8 +171,6 @@ public partial class MonitoringViewModel : ObservableObject
     private async Task Stop()
     {
         await _monitoringService.StopAsync();
-        SetRunning(false);
-        StatusText = "Parado.";
     }
 
     private bool CanStop() => IsRunning;
@@ -211,6 +210,17 @@ public partial class MonitoringViewModel : ObservableObject
             _trayNotifier.ShowWarning(
                 "Alerta de espaço em disco",
                 $"{warning.DriveName}: {warning.FreePercent:F1}% livre (mínimo {warning.MinFreePercent:F1}%)");
+        });
+    }
+
+    // Fonte única de verdade pro estado Iniciar/Parar da janela — dispara independente de
+    // quem iniciou/parou o monitoramento (esse botão, o menu da bandeja, ou --minimized).
+    private void OnRunningStateChanged(object? sender, EventArgs e)
+    {
+        Application.Current.Dispatcher.Invoke(() =>
+        {
+            SetRunning(_monitoringService.IsRunning);
+            StatusText = _monitoringService.IsRunning ? "Monitorando..." : "Parado.";
         });
     }
 

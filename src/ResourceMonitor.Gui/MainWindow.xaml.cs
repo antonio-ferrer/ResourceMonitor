@@ -110,32 +110,40 @@ public partial class MainWindow : Window
     }
 
     private bool _reportWebViewInitStarted;
+    private bool _helpWebViewInitStarted;
 
-    // Iniciado só quando a aba Relatórios é selecionada pela primeira vez (não no Loaded, junto
-    // com os outros WebView2) — inicializar 3 WebView2 ao mesmo tempo numa aba ainda não
-    // visível causava o relatório não renderizar até o usuário navegar por outra aba antes.
+    // Iniciado só quando a aba correspondente é selecionada pela primeira vez (não no Loaded,
+    // junto com os outros WebView2) — inicializar vários WebView2 ao mesmo tempo numa aba ainda
+    // não visível causava o conteúdo não renderizar até o usuário navegar por outra aba antes.
     private async void OnTabControlSelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {
-        if (_reportWebViewInitStarted || RootTabControl.SelectedItem != ReportTab)
+        if (!_reportWebViewInitStarted && RootTabControl.SelectedItem == ReportTab)
         {
-            return;
+            _reportWebViewInitStarted = true;
+
+            var reportHtmlUri = new Uri(Path.Combine(AppContext.BaseDirectory, "Assets", "report.html")).AbsoluteUri;
+
+            await ReportWebView.EnsureCoreWebView2Async();
+            ReportWebView.CoreWebView2.NavigationCompleted += (_, _) =>
+            {
+                _reportWebViewReady = true;
+                if (_pendingReportJson is { } json)
+                {
+                    _pendingReportJson = null;
+                    _ = ReportWebView.ExecuteScriptAsync($"renderReport({json})");
+                }
+            };
+            ReportWebView.CoreWebView2.Navigate(reportHtmlUri);
         }
 
-        _reportWebViewInitStarted = true;
-
-        var reportHtmlUri = new Uri(Path.Combine(AppContext.BaseDirectory, "Assets", "report.html")).AbsoluteUri;
-
-        await ReportWebView.EnsureCoreWebView2Async();
-        ReportWebView.CoreWebView2.NavigationCompleted += (_, _) =>
+        if (!_helpWebViewInitStarted && RootTabControl.SelectedItem == HelpTab)
         {
-            _reportWebViewReady = true;
-            if (_pendingReportJson is { } json)
-            {
-                _pendingReportJson = null;
-                _ = ReportWebView.ExecuteScriptAsync($"renderReport({json})");
-            }
-        };
-        ReportWebView.CoreWebView2.Navigate(reportHtmlUri);
+            _helpWebViewInitStarted = true;
+
+            var helpHtmlUri = new Uri(Path.Combine(AppContext.BaseDirectory, "Assets", "ajuda.html")).AbsoluteUri;
+            await HelpWebView.EnsureCoreWebView2Async();
+            HelpWebView.CoreWebView2.Navigate(helpHtmlUri);
+        }
     }
 
     private void OnViewChartRequested(object? sender, long alertEventId)

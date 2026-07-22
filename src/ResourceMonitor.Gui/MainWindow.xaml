@@ -365,5 +365,9 @@
             </Grid>
         </TabItem>
 
+        <TabItem x:Name="HelpTab" Header="Ajuda">
+            <wv2:WebView2 x:Name="HelpWebView" Margin="16" />
+        </TabItem>
+
     </TabControl>
 </Window>

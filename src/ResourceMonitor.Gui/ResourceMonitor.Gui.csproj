@@ -26,6 +26,9 @@
     <None Include="Assets\report.html">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Include="Assets\ajuda.html">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <Resource Include="Assets\app.ico" />
   </ItemGroup>
 
