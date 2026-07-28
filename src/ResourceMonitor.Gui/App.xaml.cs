@@ -7,6 +7,7 @@ using System.Windows.Markup;
 using ResourceMonitor.Configuration;
 using ResourceMonitor.Diagnostics;
 using ResourceMonitor.Gui.Notifications;
+using ResourceMonitor.Instancing;
 using ResourceMonitor.Monitoring;
 using ResourceMonitor.Storage;
 using Application = System.Windows.Application;
@@ -32,9 +33,37 @@ public partial class App : Application
 
     public bool IsExiting { get; private set; }
 
+    private SingleInstanceGuard? _singleInstanceGuard;
+    private GuiActivationSignal? _activationSignal;
+
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        _singleInstanceGuard = new SingleInstanceGuard();
+        if (!_singleInstanceGuard.IsPrimaryInstance)
+        {
+            var startedMinimized = e.Args.Contains("--minimized");
+            using var activation = new GuiActivationSignal();
+            activation.RequestActivation();
+            _singleInstanceGuard.Dispose(); // libera antes do MessageBox (bloqueia) para não segurar o mutex à toa
+            _singleInstanceGuard = null;
+
+            if (!startedMinimized)
+            {
+                System.Windows.MessageBox.Show(
+                    "ResourceMonitor já está em execução (bandeja ou console).",
+                    "ResourceMonitor",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
+
+            Shutdown();
+            return;
+        }
+
+        _activationSignal = new GuiActivationSignal();
+        Task.Run(() => _activationSignal.RunListenerLoop(() => Dispatcher.Invoke(ShowMainWindow)));
 
         TraceLogger = TraceLoggerFactory.Create(e.Args, Path.Combine(DataDirectory, "logs"));
         AlertEventQueries = new AlertEventQueries(TraceLogger);
@@ -131,6 +160,8 @@ public partial class App : Application
     protected override void OnExit(ExitEventArgs e)
     {
         MonitoringService.Dispose();
+        _activationSignal?.Dispose();
+        _singleInstanceGuard?.Dispose();
         base.OnExit(e);
     }
 }

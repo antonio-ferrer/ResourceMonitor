@@ -1,8 +1,17 @@
 using ResourceMonitor.Alerting;
 using ResourceMonitor.Configuration;
+using ResourceMonitor.Instancing;
 using ResourceMonitor.Monitoring;
 
 Console.OutputEncoding = System.Text.Encoding.UTF8;
+
+using var singleInstanceGuard = new SingleInstanceGuard();
+if (!singleInstanceGuard.IsPrimaryInstance)
+{
+    Console.Error.WriteLine("ResourceMonitor já está em execução (console ou interface gráfica). Encerre a outra instância antes de iniciar essa.");
+    Environment.ExitCode = 1;
+    return;
+}
 
 var settings = AppSettingsStore.Load();
 var dataDirectory = AppSettingsStore.GetDataDirectory();
