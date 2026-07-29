@@ -14,6 +14,7 @@ public partial class MainWindow : Window
     private readonly DataViewModel _dataViewModel;
     private readonly ChartViewModel _chartViewModel;
     private readonly ReportViewModel _reportViewModel;
+    private readonly OffendersViewModel _offendersViewModel;
 
     private bool _liveWebViewReady;
     private string? _pendingLiveJson;
@@ -42,11 +43,13 @@ public partial class MainWindow : Window
         _dataViewModel = new DataViewModel(app.MonitoringService, GetDatabasePath, app.AlertEventQueries, app.TraceLogger);
         _chartViewModel = new ChartViewModel(app.MonitoringService, GetDatabasePath, app.AlertEventQueries);
         _reportViewModel = new ReportViewModel(GetDatabasePath, app.AlertEventQueries);
+        _offendersViewModel = new OffendersViewModel(GetDatabasePath, app.AlertEventQueries);
 
         MonitoringTabRoot.DataContext = _monitoringViewModel;
         DataTabRoot.DataContext = _dataViewModel;
         ChartTabRoot.DataContext = _chartViewModel;
         ReportTabRoot.DataContext = _reportViewModel;
+        OffendersTabRoot.DataContext = _offendersViewModel;
 
         _dataViewModel.ViewChartRequested += OnViewChartRequested;
         _chartViewModel.PeakSamplesReady += OnPeakSamplesReady;

@@ -29,6 +29,17 @@ public sealed record ProcessSnapshotRow(
     double RamMb,
     double IoKbPerSec);
 
+// Agregado por (ProcessName, Kind) dentro de um período — quantas vezes esse processo apareceu
+// como consumidor de destaque num alerta, e com que intensidade (unidade varia por Kind:
+// CpuPercent/RamMb/IoKbPerSec).
+public sealed record TopOffenderRow(
+    string ProcessName,
+    string Kind,
+    int OccurrenceCount,
+    double AvgValue,
+    double MaxValue,
+    DateTimeOffset LastSeenUtc);
+
 // Médias já calculadas (Sum/SampleCount) — pensado pra tendência de uso ao longo de dias,
 // não pra alerta. AvgDiskFreePercent é só do disco do sistema (ver MonitoringService).
 public sealed record DailyAggregateRow(
@@ -271,6 +282,56 @@ public sealed class AlertEventQueries
                 reader.GetDouble(3),
                 reader.GetDouble(4),
                 reader.GetDouble(5)));
+        }
+
+        return results;
+    }
+
+    public List<TopOffenderRow> GetTopOffenders(string databasePath, DateTimeOffset? from, DateTimeOffset? to, int topN = 100)
+    {
+        if (!File.Exists(databasePath))
+        {
+            return new List<TopOffenderRow>();
+        }
+
+        // Garante que um banco de uma versão anterior do app (sem AlertProcessSnapshots/IoKbPerSec)
+        // já esteja migrado antes de consultar essas colunas — a conexão abaixo é somente leitura.
+        PermanentDatabase.EnsureSchema(databasePath);
+
+        using var connection = new SqliteConnection($"Data Source={databasePath};Mode=ReadOnly");
+        connection.Open();
+
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT s.ProcessName, s.Kind,
+                   COUNT(DISTINCT s.AlertEventId) AS OccurrenceCount,
+                   AVG(CASE s.Kind WHEN 'Cpu' THEN s.CpuPercent WHEN 'Ram' THEN s.RamMb ELSE s.IoKbPerSec END) AS AvgValue,
+                   MAX(CASE s.Kind WHEN 'Cpu' THEN s.CpuPercent WHEN 'Ram' THEN s.RamMb ELSE s.IoKbPerSec END) AS MaxValue,
+                   MAX(e.TimestampUtc) AS LastSeenUtc
+            FROM AlertProcessSnapshots s
+            JOIN AlertEvents e ON e.Id = s.AlertEventId
+            WHERE e.EventType = 'Start'
+                AND ($from IS NULL OR e.TimestampUtc >= $from)
+                AND ($to IS NULL OR e.TimestampUtc <= $to)
+            GROUP BY s.ProcessName, s.Kind
+            ORDER BY OccurrenceCount DESC, AvgValue DESC
+            LIMIT $topN;
+            """;
+        command.Parameters.AddWithValue("$from", (object?)FormatTimestamp(from) ?? DBNull.Value);
+        command.Parameters.AddWithValue("$to", (object?)FormatTimestamp(to) ?? DBNull.Value);
+        command.Parameters.AddWithValue("$topN", topN);
+
+        var results = new List<TopOffenderRow>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            results.Add(new TopOffenderRow(
+                reader.GetString(0),
+                reader.GetString(1),
+                reader.GetInt32(2),
+                reader.GetDouble(3),
+                reader.GetDouble(4),
+                ParseTimestamp(reader.GetString(5))));
         }
 
         return results;

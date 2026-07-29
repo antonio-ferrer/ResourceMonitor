@@ -47,6 +47,25 @@ public static class CsvExporter
         File.WriteAllText(filePath, builder.ToString(), Encoding.UTF8);
     }
 
+    public static void ExportTopOffenders(string filePath, IEnumerable<TopOffenderRow> rows)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("ProcessName,Kind,OccurrenceCount,AvgValue,MaxValue,LastSeenUtc");
+
+        foreach (var row in rows)
+        {
+            builder.AppendLine(string.Join(",",
+                Escape(row.ProcessName),
+                Escape(row.Kind),
+                row.OccurrenceCount.ToString(CultureInfo.InvariantCulture),
+                row.AvgValue.ToString("F1", CultureInfo.InvariantCulture),
+                row.MaxValue.ToString("F1", CultureInfo.InvariantCulture),
+                Escape(row.LastSeenUtc.ToLocalTime().ToString("O", CultureInfo.InvariantCulture))));
+        }
+
+        File.WriteAllText(filePath, builder.ToString(), Encoding.UTF8);
+    }
+
     private static string Escape(string value)
     {
         if (value.Contains(',') || value.Contains('"') || value.Contains('\n'))

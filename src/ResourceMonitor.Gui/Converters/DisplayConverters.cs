@@ -20,6 +20,23 @@ public sealed class MetricDisplayConverter : IValueConverter
         throw new NotSupportedException();
 }
 
+// Traduz o Kind de AlertProcessSnapshots (Cpu/Ram/Io) pro rótulo exibido na grid de Ofensores —
+// é um conjunto de valores diferente do Metric de AlertEvents (CPU/RAM/DiscoIO/DiscoLivre),
+// então não dá pra reaproveitar o MetricDisplayConverter acima.
+public sealed class OffenderKindDisplayConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object parameter, CultureInfo culture) => value switch
+    {
+        "Cpu" => "CPU",
+        "Ram" => "RAM",
+        "Io" => "Disco (I/O)",
+        _ => value ?? string.Empty,
+    };
+
+    public object ConvertBack(object? value, Type targetType, object parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}
+
 // Opera na linha inteira (não só num campo) pra poder combinar DurationMinutes + IsInterrupted
 // num único texto: "3,2 min" (recuperado), "maior que 1,2 min" (interrompido), "Em andamento".
 public sealed class DurationMinutesDisplayConverter : IValueConverter

@@ -14,6 +14,7 @@
         <conv:LocalDateTimeConverter x:Key="LocalDateTimeConverter" />
         <conv:DurationMinutesDisplayConverter x:Key="DurationMinutesDisplayConverter" />
         <conv:DiskUsageFromFreeConverter x:Key="DiskUsageFromFreeConverter" />
+        <conv:OffenderKindDisplayConverter x:Key="OffenderKindDisplayConverter" />
     </Window.Resources>
     <TabControl x:Name="RootTabControl">
 
@@ -367,6 +368,66 @@
 
         <TabItem x:Name="HelpTab" Header="Ajuda">
             <wv2:WebView2 x:Name="HelpWebView" Margin="16" />
+        </TabItem>
+
+        <TabItem Header="Ofensores">
+            <Grid x:Name="OffendersTabRoot" Margin="16">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="1*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8" VerticalAlignment="Center">
+                    <TextBlock Text="Aplicativos que mais estouram os limites" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,16,0" />
+                    <Label Content="De:" VerticalAlignment="Center" />
+                    <DatePicker SelectedDate="{Binding PeriodFrom}" Margin="4,0,12,0" />
+                    <Label Content="Até:" VerticalAlignment="Center" />
+                    <DatePicker SelectedDate="{Binding PeriodTo}" Margin="4,0,12,0" />
+                    <Button Content="Atualizar" Command="{Binding RefreshCommand}" Padding="12,4" />
+                </StackPanel>
+
+                <DataGrid Grid.Row="1" ItemsSource="{Binding Offenders}"
+                          AutoGenerateColumns="False" IsReadOnly="True">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Binding="{Binding ProcessName}">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="Processo" ToolTip="Nome do processo" />
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Binding="{Binding Kind, Converter={StaticResource OffenderKindDisplayConverter}}">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="Métrica" ToolTip="Em qual métrica esse processo apareceu como consumidor de destaque" />
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Binding="{Binding OccurrenceCount}">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="Ocorrências" ToolTip="Em quantos alertas distintos esse processo apareceu como consumidor de destaque" />
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Binding="{Binding AvgValue, StringFormat='{}{0:N1}'}">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="Valor médio" ToolTip="Média de CPU (%), RAM (MB) ou I/O (KB/s), conforme a métrica" />
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Binding="{Binding MaxValue, StringFormat='{}{0:N1}'}">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="Valor máximo" ToolTip="Maior valor registrado nesse período" />
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Binding="{Binding LastSeenUtc, Converter={StaticResource LocalDateTimeConverter}}">
+                            <DataGridTextColumn.Header>
+                                <TextBlock Text="Última ocorrência" ToolTip="Quando esse processo apareceu mais recentemente" />
+                            </DataGridTextColumn.Header>
+                        </DataGridTextColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
+
+                <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0">
+                    <Button Content="Exportar CSV" Command="{Binding ExportCsvCommand}" Padding="12,4" Margin="0,0,8,0" />
+                    <TextBlock Text="{Binding StatusText}" VerticalAlignment="Center" />
+                </StackPanel>
+            </Grid>
         </TabItem>
 
     </TabControl>
