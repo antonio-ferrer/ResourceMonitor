@@ -131,7 +131,7 @@ public sealed class MonitoringService : IDisposable
                     {
                         openAlerts[key] = alertEventId;
 
-                        var (topByCpu, topByRam, topByIo) = await ProcessSnapshotter.CaptureAsync(settings.TopProcessCount);
+                        var (topByCpu, topByRam, topByIo) = sampler.GetTopProcesses(settings.TopProcessCount);
                         permanent.InsertProcessSnapshots(alertEventId, "Cpu", topByCpu);
                         permanent.InsertProcessSnapshots(alertEventId, "Ram", topByRam);
                         permanent.InsertProcessSnapshots(alertEventId, "Io", topByIo);

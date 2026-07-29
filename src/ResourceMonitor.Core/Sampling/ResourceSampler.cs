@@ -1,14 +1,19 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 
 namespace ResourceMonitor.Sampling;
 
+public sealed record ProcessUsage(string Name, int Id, double CpuPercent, double RamMb, double IoKbPerSec);
+
 public sealed class ResourceSampler
 {
     private readonly DiskMonitor _diskMonitor;
-    private readonly Dictionary<int, TimeSpan> _lastExcludedCpuTimes = new();
+    private readonly Dictionary<int, TimeSpan> _lastCpuTimes = new();
+    private readonly Dictionary<int, ulong> _lastIoBytes = new();
+    private IReadOnlyList<ProcessUsage> _lastAllProcessUsages = Array.Empty<ProcessUsage>();
 
-    private SystemMetricsReader.CpuTimesSnapshot? _lastCpuTimes;
+    private SystemMetricsReader.CpuTimesSnapshot? _lastSystemCpuTimes;
     private DateTimeOffset? _lastSampleTime;
 
     public ResourceSampler(DiskMonitor diskMonitor)
@@ -22,88 +27,128 @@ public sealed class ResourceSampler
         var now = DateTimeOffset.UtcNow;
         var cpuTimes = SystemMetricsReader.ReadCpuTimes();
 
+        // Delta real entre este tick e o anterior (null no tick de aquecimento) — usado tanto
+        // pro CPU do sistema quanto pro CPU%/I/O por processo em WalkProcesses, no lugar da
+        // antiga janela fixa de 500ms que o ProcessSnapshotter usava só na hora do alerta.
+        double? elapsedSeconds = _lastSampleTime is { } previousSampleTime
+            ? (now - previousSampleTime).TotalSeconds
+            : null;
+
+        // Roda sempre (mesmo no aquecimento) pra começar a rastrear todo processo um tick mais
+        // cedo — antes, isso só acontecia dentro do guard abaixo, perdendo o primeiro tick.
+        var (excludedCpuSeconds, excludedRamBytes) = WalkProcesses(excludedProcessPatterns, elapsedSeconds);
+
         ResourceSample? result = null;
 
-        if (_lastCpuTimes is { } previousCpuTimes && _lastSampleTime is { } previousSampleTime)
+        if (_lastSystemCpuTimes is { } previousCpuTimes && elapsedSeconds is { } seconds && seconds > 0)
         {
-            var elapsedSeconds = (now - previousSampleTime).TotalSeconds;
-            if (elapsedSeconds > 0)
-            {
-                var idleDelta = cpuTimes.IdleTicks - previousCpuTimes.IdleTicks;
-                var kernelDelta = cpuTimes.KernelTicks - previousCpuTimes.KernelTicks;
-                var userDelta = cpuTimes.UserTicks - previousCpuTimes.UserTicks;
-                var totalDelta = kernelDelta + userDelta;
+            var idleDelta = cpuTimes.IdleTicks - previousCpuTimes.IdleTicks;
+            var kernelDelta = cpuTimes.KernelTicks - previousCpuTimes.KernelTicks;
+            var userDelta = cpuTimes.UserTicks - previousCpuTimes.UserTicks;
+            var totalDelta = kernelDelta + userDelta;
 
-                var cpuRawPercent = totalDelta > 0
-                    ? Math.Clamp((1.0 - (double)idleDelta / totalDelta) * 100.0, 0, 100)
-                    : 0;
+            var cpuRawPercent = totalDelta > 0
+                ? Math.Clamp((1.0 - (double)idleDelta / totalDelta) * 100.0, 0, 100)
+                : 0;
 
-                var (excludedCpuSeconds, excludedRamBytes) = SampleExcludedProcesses(excludedProcessPatterns);
+            var excludedCpuPercent = Math.Clamp(
+                excludedCpuSeconds / (seconds * Environment.ProcessorCount) * 100.0, 0, 100);
 
-                var excludedCpuPercent = Math.Clamp(
-                    excludedCpuSeconds / (elapsedSeconds * Environment.ProcessorCount) * 100.0, 0, 100);
+            var cpuAdjustedPercent = Math.Max(0, cpuRawPercent - excludedCpuPercent);
 
-                var cpuAdjustedPercent = Math.Max(0, cpuRawPercent - excludedCpuPercent);
+            var memoryInfo = SystemMetricsReader.ReadMemoryInfo();
+            var excludedRamPercent = memoryInfo.TotalPhysBytes > 0
+                ? (double)excludedRamBytes / memoryInfo.TotalPhysBytes * 100.0
+                : 0;
+            var ramAdjustedPercent = Math.Max(0, memoryInfo.PercentUsed - excludedRamPercent);
 
-                var memoryInfo = SystemMetricsReader.ReadMemoryInfo();
-                var excludedRamPercent = memoryInfo.TotalPhysBytes > 0
-                    ? (double)excludedRamBytes / memoryInfo.TotalPhysBytes * 100.0
-                    : 0;
-                var ramAdjustedPercent = Math.Max(0, memoryInfo.PercentUsed - excludedRamPercent);
+            var disks = _diskMonitor.SampleDisks();
 
-                var disks = _diskMonitor.SampleDisks();
-
-                result = new ResourceSample(
-                    now,
-                    cpuRawPercent,
-                    cpuAdjustedPercent,
-                    memoryInfo.PercentUsed,
-                    ramAdjustedPercent,
-                    memoryInfo.TotalPhysBytes / 1024.0 / 1024.0 / 1024.0,
-                    memoryInfo.AvailPhysBytes / 1024.0 / 1024.0 / 1024.0,
-                    disks);
-            }
+            result = new ResourceSample(
+                now,
+                cpuRawPercent,
+                cpuAdjustedPercent,
+                memoryInfo.PercentUsed,
+                ramAdjustedPercent,
+                memoryInfo.TotalPhysBytes / 1024.0 / 1024.0 / 1024.0,
+                memoryInfo.AvailPhysBytes / 1024.0 / 1024.0 / 1024.0,
+                disks);
         }
 
-        _lastCpuTimes = cpuTimes;
+        _lastSystemCpuTimes = cpuTimes;
         _lastSampleTime = now;
 
         return result;
     }
 
-    // Soma CPU (delta de TotalProcessorTime desde o último tick) e RAM (WorkingSet64 atual)
-    // de todo processo cujo nome bate com algum padrão da lista de exclusão.
-    private (double CpuSeconds, long RamBytes) SampleExcludedProcesses(IReadOnlyList<string> patterns)
-    {
-        double cpuSeconds = 0;
-        long ramBytes = 0;
-        var currentPids = new HashSet<int>();
+    // Snapshot dos processos que mais consumiram CPU/RAM/I/O, calculado a partir do último tick
+    // (não uma captura dedicada) — leitura em memória, sem enumerar processos de novo.
+    public (IReadOnlyList<ProcessUsage> TopByCpu, IReadOnlyList<ProcessUsage> TopByRam, IReadOnlyList<ProcessUsage> TopByIo)
+        GetTopProcesses(int topN) => (
+        _lastAllProcessUsages.OrderByDescending(u => u.CpuPercent).Take(topN).ToList(),
+        _lastAllProcessUsages.OrderByDescending(u => u.RamMb).Take(topN).ToList(),
+        _lastAllProcessUsages.OrderByDescending(u => u.IoKbPerSec).Take(topN).ToList());
 
-        if (patterns.Count == 0)
-        {
-            _lastExcludedCpuTimes.Clear();
-            return (0, 0);
-        }
+    // Uma única enumeração de todo processo por tick, reaproveitada pra duas coisas: somar
+    // CPU/RAM de quem bate os padrões de exclusão (pro cálculo de uso "líquido") e manter
+    // _lastAllProcessUsages atualizado (pra servir GetTopProcesses sem nova varredura). Antes,
+    // cada uma dessas coisas tinha seu próprio código — a exclusão aqui, o top-processos com
+    // varredura dedicada de 500ms em ProcessSnapshotter.CaptureAsync.
+    private (double CpuSeconds, long RamBytes) WalkProcesses(IReadOnlyList<string> excludedPatterns, double? elapsedSeconds)
+    {
+        double excludedCpuSeconds = 0;
+        long excludedRamBytes = 0;
+        var currentPids = new HashSet<int>();
+        var usages = new List<ProcessUsage>();
 
         foreach (var process in Process.GetProcesses())
         {
             try
             {
-                if (!MatchesAnyPattern(process.ProcessName, patterns))
-                {
-                    continue;
-                }
-
                 currentPids.Add(process.Id);
 
                 var cpuTime = process.TotalProcessorTime;
-                if (_lastExcludedCpuTimes.TryGetValue(process.Id, out var previous))
+                var ramBytes = process.WorkingSet64;
+                var isExcluded = excludedPatterns.Count > 0 && MatchesAnyPattern(process.ProcessName, excludedPatterns);
+
+                double cpuPercent = 0;
+                double ioKbPerSec = 0;
+
+                if (elapsedSeconds is { } seconds && seconds > 0)
                 {
-                    cpuSeconds += Math.Max(0, (cpuTime - previous).TotalSeconds);
+                    if (_lastCpuTimes.TryGetValue(process.Id, out var previousCpuTime))
+                    {
+                        var cpuDeltaSeconds = Math.Max(0, (cpuTime - previousCpuTime).TotalSeconds);
+                        cpuPercent = Math.Clamp(cpuDeltaSeconds / (seconds * Environment.ProcessorCount) * 100.0, 0, 100);
+                        if (isExcluded)
+                        {
+                            excludedCpuSeconds += cpuDeltaSeconds;
+                        }
+                    }
+
+                    // Leitura de I/O por processo não é exposta pelo Process do .NET — via
+                    // P/Invoke de GetProcessIoCounters (kernel32), mesmo padrão de delta da CPU.
+                    if (GetProcessIoCounters(process.Handle, out var counters))
+                    {
+                        var ioBytes = counters.ReadTransferCount + counters.WriteTransferCount;
+                        if (_lastIoBytes.TryGetValue(process.Id, out var previousIoBytes))
+                        {
+                            var ioBytesDelta = Math.Max(0, (long)(ioBytes - previousIoBytes));
+                            ioKbPerSec = ioBytesDelta / seconds / 1024.0;
+                        }
+
+                        _lastIoBytes[process.Id] = ioBytes;
+                    }
                 }
 
-                _lastExcludedCpuTimes[process.Id] = cpuTime;
-                ramBytes += process.WorkingSet64;
+                _lastCpuTimes[process.Id] = cpuTime;
+
+                if (isExcluded)
+                {
+                    excludedRamBytes += ramBytes;
+                }
+
+                usages.Add(new ProcessUsage(process.ProcessName, process.Id, cpuPercent, ramBytes / 1024.0 / 1024.0, ioKbPerSec));
             }
             catch (Exception)
             {
@@ -115,12 +160,19 @@ public sealed class ResourceSampler
             }
         }
 
-        foreach (var pid in _lastExcludedCpuTimes.Keys.Except(currentPids).ToList())
+        foreach (var pid in _lastCpuTimes.Keys.Except(currentPids).ToList())
         {
-            _lastExcludedCpuTimes.Remove(pid);
+            _lastCpuTimes.Remove(pid);
         }
 
-        return (cpuSeconds, ramBytes);
+        foreach (var pid in _lastIoBytes.Keys.Except(currentPids).ToList())
+        {
+            _lastIoBytes.Remove(pid);
+        }
+
+        _lastAllProcessUsages = usages;
+
+        return (excludedCpuSeconds, excludedRamBytes);
     }
 
     private static bool MatchesAnyPattern(string processName, IReadOnlyList<string> patterns)
@@ -141,4 +193,19 @@ public sealed class ResourceSampler
         var regexPattern = "^" + Regex.Escape(pattern).Replace("\\*", ".*") + "$";
         return Regex.IsMatch(input, regexPattern, RegexOptions.IgnoreCase);
     }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct IoCounters
+    {
+        public ulong ReadOperationCount;
+        public ulong WriteOperationCount;
+        public ulong OtherOperationCount;
+        public ulong ReadTransferCount;
+        public ulong WriteTransferCount;
+        public ulong OtherTransferCount;
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetProcessIoCounters(IntPtr processHandle, out IoCounters counters);
 }
