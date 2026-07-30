@@ -48,6 +48,16 @@ public static class HardwareInfoReader
                 return RuntimeInformation.OSDescription;
             }
 
+            // A Microsoft nunca atualizou o ProductName pro Windows 11 (continua "Windows 10 ...",
+            // mesmo em builds recentes) pra não quebrar apps que checam essa string — a forma
+            // confiável de diferenciar é a build number (Windows 11 começa em 22000).
+            if (productName.StartsWith("Windows 10", StringComparison.OrdinalIgnoreCase)
+                && int.TryParse(key?.GetValue("CurrentBuildNumber") as string, out var buildNumber)
+                && buildNumber >= 22000)
+            {
+                productName = "Windows 11" + productName["Windows 10".Length..];
+            }
+
             var displayVersion = key?.GetValue("DisplayVersion") as string;
             return displayVersion is null ? productName : $"{productName} {displayVersion}";
         }
