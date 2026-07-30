@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Navigation;
 using ResourceMonitor.Gui.ViewModels;
 using Application = System.Windows.Application;
@@ -62,7 +63,8 @@ public partial class MainWindow : Window
         _chartViewModel.LoadDailyTrendCommand.Execute(null);
 
         Loaded += OnLoaded;
-        RootTabControl.SelectionChanged += OnTabControlSelectionChanged;
+
+        ShowSection(MonitoringTabRoot, MenuConfiguracoes);
     }
 
     private static string GetDatabasePath()
@@ -115,43 +117,77 @@ public partial class MainWindow : Window
     private bool _reportWebViewInitStarted;
     private bool _helpWebViewInitStarted;
 
-    // Iniciado só quando a aba correspondente é selecionada pela primeira vez (não no Loaded,
-    // junto com os outros WebView2) — inicializar vários WebView2 ao mesmo tempo numa aba ainda
-    // não visível causava o conteúdo não renderizar até o usuário navegar por outra aba antes.
-    private async void OnTabControlSelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    // Esconde todos os roots de conteúdo e mostra só o passado; marca qual item do menu
+    // principal fica destacado (Tag="Active", ver MainMenuItemStyle em MainWindow.xaml).
+    private void ShowSection(UIElement section, MenuItem activeMenuItem)
     {
-        if (!_reportWebViewInitStarted && RootTabControl.SelectedItem == ReportTab)
+        foreach (var candidate in new UIElement[] { MonitoringTabRoot, DataTabRoot, OffendersTabRoot, ChartTabRoot, ReportTabRoot, HelpWebView })
         {
-            _reportWebViewInitStarted = true;
+            candidate.Visibility = ReferenceEquals(candidate, section) ? Visibility.Visible : Visibility.Collapsed;
+        }
 
-            var reportHtmlUri = new Uri(Path.Combine(AppContext.BaseDirectory, "Assets", "report.html")).AbsoluteUri;
+        foreach (var item in new[] { MenuConfiguracoes, MenuDados, MenuOfensores, MenuGraficos, MenuRelatorios, MenuAjuda })
+        {
+            item.Tag = ReferenceEquals(item, activeMenuItem) ? "Active" : null;
+        }
+    }
 
-            await ReportWebView.EnsureCoreWebView2Async();
-            ReportWebView.CoreWebView2.NavigationCompleted += (_, _) =>
+    private void OnMenuConfiguracoesClick(object sender, RoutedEventArgs e) => ShowSection(MonitoringTabRoot, MenuConfiguracoes);
+
+    private void OnMenuDadosClick(object sender, RoutedEventArgs e) => ShowSection(DataTabRoot, MenuDados);
+
+    private void OnMenuOfensoresClick(object sender, RoutedEventArgs e) => ShowSection(OffendersTabRoot, MenuOfensores);
+
+    private void OnMenuGraficosClick(object sender, RoutedEventArgs e) => ShowSection(ChartTabRoot, MenuGraficos);
+
+    // Iniciado só na primeira vez que a seção é aberta (não no Loaded, junto com os outros
+    // WebView2) — inicializar vários WebView2 ao mesmo tempo numa seção ainda não visível
+    // causava o conteúdo não renderizar até o usuário navegar por outra seção antes.
+    private async void OnMenuRelatoriosGeralClick(object sender, RoutedEventArgs e)
+    {
+        ShowSection(ReportTabRoot, MenuRelatorios);
+
+        if (_reportWebViewInitStarted)
+        {
+            return;
+        }
+
+        _reportWebViewInitStarted = true;
+
+        var reportHtmlUri = new Uri(Path.Combine(AppContext.BaseDirectory, "Assets", "report.html")).AbsoluteUri;
+
+        await ReportWebView.EnsureCoreWebView2Async();
+        ReportWebView.CoreWebView2.NavigationCompleted += (_, _) =>
+        {
+            _reportWebViewReady = true;
+            if (_pendingReportJson is { } json)
             {
-                _reportWebViewReady = true;
-                if (_pendingReportJson is { } json)
-                {
-                    _pendingReportJson = null;
-                    _ = ReportWebView.ExecuteScriptAsync($"renderReport({json})");
-                }
-            };
-            ReportWebView.CoreWebView2.Navigate(reportHtmlUri);
-        }
+                _pendingReportJson = null;
+                _ = ReportWebView.ExecuteScriptAsync($"renderReport({json})");
+            }
+        };
+        ReportWebView.CoreWebView2.Navigate(reportHtmlUri);
+    }
 
-        if (!_helpWebViewInitStarted && RootTabControl.SelectedItem == HelpTab)
+    private async void OnMenuAjudaClick(object sender, RoutedEventArgs e)
+    {
+        ShowSection(HelpWebView, MenuAjuda);
+
+        if (_helpWebViewInitStarted)
         {
-            _helpWebViewInitStarted = true;
-
-            var helpHtmlUri = new Uri(Path.Combine(AppContext.BaseDirectory, "Assets", "ajuda.html")).AbsoluteUri;
-            await HelpWebView.EnsureCoreWebView2Async();
-            HelpWebView.CoreWebView2.Navigate(helpHtmlUri);
+            return;
         }
+
+        _helpWebViewInitStarted = true;
+
+        var helpHtmlUri = new Uri(Path.Combine(AppContext.BaseDirectory, "Assets", "ajuda.html")).AbsoluteUri;
+        await HelpWebView.EnsureCoreWebView2Async();
+        HelpWebView.CoreWebView2.Navigate(helpHtmlUri);
     }
 
     private void OnViewChartRequested(object? sender, long alertEventId)
     {
-        RootTabControl.SelectedIndex = 2;
+        ShowSection(ChartTabRoot, MenuGraficos);
         _chartViewModel.LoadForAlertEvent(alertEventId);
     }
 
