@@ -1,8 +1,59 @@
 using System.Globalization;
 using System.Windows.Data;
+using System.Windows.Media;
+using ResourceMonitor.Sampling;
 using ResourceMonitor.Storage;
 
 namespace ResourceMonitor.Gui.Converters;
+
+// "claude" vira "claude (2)" quando o agrupamento juntou mais de um processo com esse nome
+// (ver ResourceSampler.GetTopProcessesGrouped) — só mostra a contagem quando > 1, senão some.
+public sealed class GroupedProcessNameConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object parameter, CultureInfo culture) => value switch
+    {
+        GroupedProcessUsage { InstanceCount: > 1 } grouped => $"{grouped.Name} ({grouped.InstanceCount})",
+        GroupedProcessUsage grouped => grouped.Name,
+        _ => string.Empty,
+    };
+
+    public object ConvertBack(object? value, Type targetType, object parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}
+
+// Pills "Ativa"/"Inativa" do resumo de configurações na Home — mesmas cores do mock aprovado.
+public sealed class BoolToActiveLabelConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object parameter, CultureInfo culture) =>
+        value is true ? "Ativa" : "Inativa";
+
+    public object ConvertBack(object? value, Type targetType, object parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}
+
+public sealed class BoolToActiveBackgroundConverter : IValueConverter
+{
+    private static readonly SolidColorBrush OnBrush = new(System.Windows.Media.Color.FromRgb(0xEA, 0xF7, 0xEE));
+    private static readonly SolidColorBrush OffBrush = new(System.Windows.Media.Color.FromRgb(0xF1, 0xF2, 0xF4));
+
+    public object Convert(object? value, Type targetType, object parameter, CultureInfo culture) =>
+        value is true ? OnBrush : OffBrush;
+
+    public object ConvertBack(object? value, Type targetType, object parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}
+
+public sealed class BoolToActiveForegroundConverter : IValueConverter
+{
+    private static readonly SolidColorBrush OnBrush = new(System.Windows.Media.Color.FromRgb(0x15, 0x80, 0x3D));
+    private static readonly SolidColorBrush OffBrush = new(System.Windows.Media.Color.FromRgb(0x7C, 0x84, 0x94));
+
+    public object Convert(object? value, Type targetType, object parameter, CultureInfo culture) =>
+        value is true ? OnBrush : OffBrush;
+
+    public object ConvertBack(object? value, Type targetType, object parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}
 
 // Traduz o código interno da métrica (ver ThresholdMonitor.EvaluateMetric) pro rótulo exibido na grid.
 public sealed class MetricDisplayConverter : IValueConverter

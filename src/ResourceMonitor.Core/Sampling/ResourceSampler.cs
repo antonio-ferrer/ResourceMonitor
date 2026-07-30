@@ -6,6 +6,10 @@ namespace ResourceMonitor.Sampling;
 
 public sealed record ProcessUsage(string Name, int Id, double CpuPercent, double RamMb, double IoKbPerSec);
 
+// Mesmo nome, várias instâncias somadas (ver GetTopProcessesGrouped) — InstanceCount > 1
+// avisa que o valor é a soma de mais de um processo, não um único PID.
+public sealed record GroupedProcessUsage(string Name, int InstanceCount, double CpuPercent, double RamMb, double IoKbPerSec);
+
 public sealed class ResourceSampler
 {
     private readonly DiskMonitor _diskMonitor;
@@ -88,6 +92,69 @@ public sealed class ResourceSampler
         _lastAllProcessUsages.OrderByDescending(u => u.CpuPercent).Take(topN).ToList(),
         _lastAllProcessUsages.OrderByDescending(u => u.RamMb).Take(topN).ToList(),
         _lastAllProcessUsages.OrderByDescending(u => u.IoKbPerSec).Take(topN).ToList());
+
+    // Mesma ideia, mas somando por nome antes de ranquear — apps tipo Electron/Chromium sobem
+    // vários processos com o mesmo nome (main, renderer, GPU...), o que faria o mesmo app
+    // ocupar sozinho várias posições do top-N. Além disso, processos "carona" (ex: o
+    // msedgewebview2 que o próprio ResourceMonitor sobe pros gráficos embutidos) sobem a
+    // cadeia de pais com o MESMO nome até achar o primeiro ancestral de nome diferente, e são
+    // contabilizados nele — assim "msedgewebview2 → msedgewebview2 → ResourceMonitor.Gui" vira
+    // só "ResourceMonitor.Gui", sem misturar apps que só coincidem em ter o Explorer como
+    // ancestral comum (aí o nome do pai já difere logo no primeiro passo, então não sobe).
+    // Só usada pro monitor ao vivo (LiveMonitorService); o snapshot gravado no alerta
+    // (GetTopProcesses acima) continua por PID — lá o detalhe de qual processo específico
+    // importa pra investigação.
+    public (IReadOnlyList<GroupedProcessUsage> TopByCpu, IReadOnlyList<GroupedProcessUsage> TopByRam, IReadOnlyList<GroupedProcessUsage> TopByIo)
+        GetTopProcessesGrouped(int topN)
+    {
+        var parentOf = ProcessTree.GetParentProcessIds();
+        var nameOf = new Dictionary<int, string>();
+        foreach (var usage in _lastAllProcessUsages)
+        {
+            nameOf[usage.Id] = usage.Name;
+        }
+
+        var grouped = _lastAllProcessUsages
+            .GroupBy(u => ResolveAttributionName(u, parentOf, nameOf), StringComparer.OrdinalIgnoreCase)
+            .Select(g => new GroupedProcessUsage(
+                g.Key,
+                g.Count(),
+                g.Sum(u => u.CpuPercent),
+                g.Sum(u => u.RamMb),
+                g.Sum(u => u.IoKbPerSec)))
+            .ToList();
+
+        return (
+            grouped.OrderByDescending(u => u.CpuPercent).Take(topN).ToList(),
+            grouped.OrderByDescending(u => u.RamMb).Take(topN).ToList(),
+            grouped.OrderByDescending(u => u.IoKbPerSec).Take(topN).ToList());
+    }
+
+    // Sobe a cadeia de pais enquanto o nome do pai for igual ao do processo original —
+    // pra no primeiro pai de nome diferente. Se a cadeia nunca muda de nome (ou o pai não é
+    // resolvível), mantém o nome original — equivale a não subir nada.
+    private const int MaxAncestorDepth = 32;
+
+    private static string ResolveAttributionName(ProcessUsage usage, Dictionary<int, int> parentOf, Dictionary<int, string> nameOf)
+    {
+        var currentId = usage.Id;
+        for (var depth = 0; depth < MaxAncestorDepth; depth++)
+        {
+            if (!parentOf.TryGetValue(currentId, out var parentId) || !nameOf.TryGetValue(parentId, out var parentName))
+            {
+                break;
+            }
+
+            if (!string.Equals(parentName, usage.Name, StringComparison.OrdinalIgnoreCase))
+            {
+                return parentName;
+            }
+
+            currentId = parentId;
+        }
+
+        return usage.Name;
+    }
 
     // Uma única enumeração de todo processo por tick, reaproveitada pra duas coisas: somar
     // CPU/RAM de quem bate os padrões de exclusão (pro cálculo de uso "líquido") e manter

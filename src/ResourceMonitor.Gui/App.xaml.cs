@@ -20,6 +20,8 @@ public partial class App : Application
 
     public MonitoringService MonitoringService { get; } = new();
 
+    public LiveMonitorService LiveMonitor { get; } = new();
+
     public MonitorSettings Settings { get; set; } = new();
 
     public string DataDirectory { get; } = AppSettingsStore.GetDataDirectory();
@@ -160,6 +162,7 @@ public partial class App : Application
     protected override void OnExit(ExitEventArgs e)
     {
         MonitoringService.Dispose();
+        LiveMonitor.Dispose();
         _activationSignal?.Dispose();
         _singleInstanceGuard?.Dispose();
         base.OnExit(e);
