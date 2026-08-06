@@ -71,3 +71,6 @@ Thumbs.db
 
 # Local publish/release artifacts (distribuídos via GitHub Releases, não versionados)
 publish/
+
+# Script local de seed de dados de teste (não faz parte do projeto)
+seed_test_data.sql
