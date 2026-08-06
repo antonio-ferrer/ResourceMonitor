@@ -47,7 +47,11 @@
             <MenuItem x:Name="MenuConfiguracoes" Header="Configurações" Style="{StaticResource MainMenuItemStyle}" Click="OnMenuConfiguracoesClick" />
             <MenuItem x:Name="MenuDados" Header="Dados" Style="{StaticResource MainMenuItemStyle}" Click="OnMenuDadosClick" />
             <MenuItem x:Name="MenuOfensores" Header="Ofensores" Style="{StaticResource MainMenuItemStyle}" Click="OnMenuOfensoresClick" />
-            <MenuItem x:Name="MenuGraficos" Header="Gráficos" Style="{StaticResource MainMenuItemStyle}" Click="OnMenuGraficosClick" />
+            <MenuItem x:Name="MenuGraficos" Header="Gráficos" Style="{StaticResource MainMenuItemStyle}">
+                <MenuItem x:Name="MenuGraficosDadosCorrentes" Header="Dados Correntes" Click="OnMenuGraficosDadosCorrentesClick" />
+                <MenuItem x:Name="MenuGraficosTendencia" Header="Tendência" Click="OnMenuGraficosTendenciaClick" />
+                <MenuItem x:Name="MenuGraficosEventos" Header="Eventos de Picos" Click="OnMenuGraficosEventosClick" />
+            </MenuItem>
             <MenuItem x:Name="MenuRelatorios" Header="Relatórios" Style="{StaticResource MainMenuItemStyle}">
                 <MenuItem x:Name="MenuRelatoriosGeral" Header="Geral" Click="OnMenuRelatoriosGeralClick" />
             </MenuItem>
@@ -530,77 +534,49 @@
                 </StackPanel>
             </Grid>
 
-            <Grid x:Name="ChartTabRoot" Margin="16" Visibility="Collapsed">
+            <Grid x:Name="ChartLiveTabRoot" Margin="16" Visibility="Collapsed">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
-                    <RowDefinition Height="1*" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="1*" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="0.8*" />
+                    <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
 
                 <TextBlock Grid.Row="0" Text="{Binding LiveStatusText, StringFormat='Dados correntes (ao vivo): {0}'}" Margin="0,0,0,8" FontWeight="Bold" />
-                <wv2:WebView2 Grid.Row="1" x:Name="LiveChartWebView" Margin="0,0,0,16" />
+                <wv2:WebView2 Grid.Row="1" x:Name="LiveChartWebView" />
+            </Grid>
 
-                <TextBlock Grid.Row="2" Text="{Binding StatusText, StringFormat='Base de picos: {0}'}" Margin="0,0,0,8" FontWeight="Bold" />
-                <Grid Grid.Row="3">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="260" />
-                    </Grid.ColumnDefinitions>
+            <Grid x:Name="ChartTrendTabRoot" Margin="16" Visibility="Collapsed">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
 
-                    <wv2:WebView2 Grid.Column="0" x:Name="PeakChartWebView" />
+                <TextBlock Grid.Row="0" Text="{Binding TrendStatusText}" Margin="0,0,0,8" FontWeight="Bold" />
+                <wv2:WebView2 Grid.Row="1" x:Name="TrendChartWebView" />
+            </Grid>
 
-                    <ScrollViewer Grid.Column="1" Margin="12,0,0,0" VerticalScrollBarVisibility="Auto">
-                    <StackPanel>
-                        <TextBlock Text="Top processos por CPU" FontWeight="Bold" Margin="0,0,0,4"
-                                   ToolTip="Os processos que mais consumiam CPU no momento do pico" />
-                        <ItemsControl ItemsSource="{Binding TopByCpu}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <TextBlock Margin="0,0,0,2" TextTrimming="CharacterEllipsis">
-                                        <Run Text="{Binding ProcessName, Mode=OneWay}" />
-                                        <Run Text=" — " />
-                                        <Run Text="{Binding CpuPercent, StringFormat='{}{0:N1}%', Mode=OneWay}" />
-                                    </TextBlock>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
+            <Grid x:Name="ChartEventosTabRoot" Margin="16" Visibility="Collapsed">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
 
-                        <TextBlock Text="Top processos por RAM" FontWeight="Bold" Margin="0,16,0,4"
-                                   ToolTip="Os processos que mais consumiam RAM no momento do pico" />
-                        <ItemsControl ItemsSource="{Binding TopByRam}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <TextBlock Margin="0,0,0,2" TextTrimming="CharacterEllipsis">
-                                        <Run Text="{Binding ProcessName, Mode=OneWay}" />
-                                        <Run Text=" — " />
-                                        <Run Text="{Binding RamMb, StringFormat='{}{0:N0} MB', Mode=OneWay}" />
-                                    </TextBlock>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
+                <WrapPanel Grid.Row="0" Margin="0,0,0,8">
+                    <Label Content="De:" VerticalAlignment="Center" />
+                    <DatePicker SelectedDate="{Binding PeriodFrom}" VerticalAlignment="Center" Margin="4,0,16,0" />
+                    <Label Content="Até:" VerticalAlignment="Center" />
+                    <DatePicker SelectedDate="{Binding PeriodTo}" VerticalAlignment="Center" Margin="4,0,16,0" />
+                    <CheckBox Content="CPU" IsChecked="{Binding IncludeCpu}" VerticalAlignment="Center" Margin="0,0,10,0" />
+                    <CheckBox Content="RAM" IsChecked="{Binding IncludeRam}" VerticalAlignment="Center" Margin="0,0,10,0" />
+                    <CheckBox Content="Disco I/O" IsChecked="{Binding IncludeDiscoIo}" VerticalAlignment="Center" Margin="0,0,16,0" />
+                    <Button Content="Carregar" Command="{Binding CarregarEventosDePicosCommand}" Padding="12,4" VerticalAlignment="Center" />
+                </WrapPanel>
 
-                        <TextBlock Text="Top processos por I/O de disco" FontWeight="Bold" Margin="0,16,0,4"
-                                   ToolTip="Os processos que mais liam/escreviam em disco no momento do pico" />
-                        <ItemsControl ItemsSource="{Binding TopByIo}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <TextBlock Margin="0,0,0,2" TextTrimming="CharacterEllipsis">
-                                        <Run Text="{Binding ProcessName, Mode=OneWay}" />
-                                        <Run Text=" — " />
-                                        <Run Text="{Binding IoKbPerSec, StringFormat='{}{0:N0} KB/s', Mode=OneWay}" />
-                                    </TextBlock>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                    </StackPanel>
-                    </ScrollViewer>
-                </Grid>
+                <TextBlock Grid.Row="1" Text="{Binding EventosStatusText}" Margin="0,0,0,8" />
 
-                <TextBlock Grid.Row="4" Text="{Binding TrendStatusText}" Margin="0,16,0,8" FontWeight="Bold" />
-                <wv2:WebView2 Grid.Row="5" x:Name="TrendChartWebView" />
+                <!-- Clicar num marcador (bolinha) abre EpisodeDetailWindow com os processos
+                     daquele pico — ver chart.html (postMessage) + OnEventsChartWebMessageReceived. -->
+                <wv2:WebView2 Grid.Row="2" x:Name="EventsChartWebView" />
             </Grid>
 
             <Grid x:Name="ReportTabRoot" Margin="16" Visibility="Collapsed">

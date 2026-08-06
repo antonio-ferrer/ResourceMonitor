@@ -13,16 +13,51 @@
 <script>
 let lastData = null;
 let lastTrendData = null;
+let lastCombinedData = null;
+
+// Hitboxes dos marcadores desenhados por drawTrendWithEvents (ver função), preenchidas de novo
+// a cada desenho — clicar em cima de um ponto pede pro host (MainWindow.xaml.cs) abrir o
+// detalhe daquele episódio, em vez de precisar de uma lista clicável separada.
+let lastCombinedMarkerHitboxes = [];
 
 function resizeCanvas() {
   const canvas = document.getElementById('chart');
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
-  if (lastTrendData) drawTrend(lastTrendData);
+  if (lastCombinedData) drawTrendWithEvents(lastCombinedData);
+  else if (lastTrendData) drawTrend(lastTrendData);
   else if (lastData) draw(lastData);
 }
 
 window.addEventListener('resize', resizeCanvas);
+
+document.getElementById('chart').addEventListener('click', (evt) => {
+  const hit = hitTestMarker(evt);
+  if (hit && window.chrome && window.chrome.webview) {
+    window.chrome.webview.postMessage(JSON.stringify({
+      alertEventId: hit.alertEventId,
+      metric: hit.metric,
+      timestamp: hit.timestamp,
+      durationMinutes: hit.durationMinutes,
+      isInterrupted: hit.isInterrupted,
+    }));
+  }
+});
+
+document.getElementById('chart').addEventListener('mousemove', (evt) => {
+  document.getElementById('chart').style.cursor = hitTestMarker(evt) ? 'pointer' : 'default';
+});
+
+function hitTestMarker(evt) {
+  const canvas = document.getElementById('chart');
+  const rect = canvas.getBoundingClientRect();
+  const mx = evt.clientX - rect.left;
+  const my = evt.clientY - rect.top;
+  return lastCombinedMarkerHitboxes.find((hit) => {
+    const dx = mx - hit.x, dy = my - hit.y;
+    return (dx * dx + dy * dy) <= (hit.r * hit.r);
+  });
+}
 
 function renderSamples(data) {
   lastData = data;
@@ -33,6 +68,15 @@ function renderSamples(data) {
 // médias diárias — eixo X por dia em vez de horário, e uma 4ª linha de espaço livre em disco.
 function renderDailyTrend(data) {
   lastTrendData = data;
+  resizeCanvas();
+}
+
+// Usado por Gráficos > Eventos de Picos: mesma linha de tendência de renderDailyTrend, com
+// marcadores verticais nos dias em que algum alerta disparou. data = { trend, events,
+// usingCurrentAsBaseline } — dayIndex de cada evento já vem resolvido do C# (índice dentro de
+// trend, não um timestamp real).
+function renderTrendWithEvents(data) {
+  lastCombinedData = data;
   resizeCanvas();
 }
 
@@ -178,6 +222,133 @@ function drawTrend(data) {
   ctx.fillRect(paddingLeft + 210, 4, 10, 10);
   ctx.fillStyle = '#333';
   ctx.fillText('Disco (uso)', paddingLeft + 224, 13);
+}
+
+function drawTrendWithEvents(payload) {
+  const canvas = document.getElementById('chart');
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+
+  const data = (payload && payload.trend) || [];
+  const events = (payload && payload.events) || [];
+  lastCombinedMarkerHitboxes = [];
+
+  if (data.length === 0) {
+    ctx.fillStyle = '#666';
+    ctx.font = '14px Segoe UI';
+    ctx.fillText('Nenhum dado histórico encontrado pro período.', 20, 30);
+    return;
+  }
+
+  const paddingLeft = 50, paddingRight = 20, paddingTop = 24, paddingBottom = 40;
+  const plotW = w - paddingLeft - paddingRight;
+  const plotH = h - paddingTop - paddingBottom;
+  const n = data.length;
+
+  ctx.strokeStyle = '#ddd';
+  ctx.fillStyle = '#666';
+  ctx.font = '11px Segoe UI';
+  ctx.lineWidth = 1;
+  for (let pct = 0; pct <= 100; pct += 20) {
+    const y = paddingTop + plotH - (pct / 100) * plotH;
+    ctx.beginPath();
+    ctx.moveTo(paddingLeft, y);
+    ctx.lineTo(paddingLeft + plotW, y);
+    ctx.stroke();
+    ctx.fillText(pct + '%', 10, y + 4);
+  }
+
+  const step = Math.max(1, Math.floor(n / 10));
+  for (let i = 0; i < n; i += step) {
+    const x = paddingLeft + (i / (n - 1 || 1)) * plotW;
+    ctx.fillText(data[i].date, x - 15, h - 15);
+  }
+
+  function xForIndex(i) {
+    return paddingLeft + (i / (n - 1 || 1)) * plotW;
+  }
+
+  function plotLine(key, color) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    data.forEach((point, i) => {
+      const x = xForIndex(i);
+      const y = paddingTop + plotH - (point[key] / 100) * plotH;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  }
+
+  plotLine('cpu', '#2563eb');
+  plotLine('ram', '#f97316');
+  plotLine('io', '#16a34a');
+  plotLine('diskUsage', '#9333ea');
+
+  ctx.fillStyle = '#2563eb'; ctx.fillRect(paddingLeft, 4, 10, 10);
+  ctx.fillStyle = '#333'; ctx.fillText('CPU', paddingLeft + 14, 13);
+  ctx.fillStyle = '#f97316'; ctx.fillRect(paddingLeft + 60, 4, 10, 10);
+  ctx.fillStyle = '#333'; ctx.fillText('RAM', paddingLeft + 74, 13);
+  ctx.fillStyle = '#16a34a'; ctx.fillRect(paddingLeft + 120, 4, 10, 10);
+  ctx.fillStyle = '#333'; ctx.fillText('Disco I/O', paddingLeft + 134, 13);
+  ctx.fillStyle = '#9333ea'; ctx.fillRect(paddingLeft + 210, 4, 10, 10);
+  ctx.fillStyle = '#333'; ctx.fillText('Disco (uso)', paddingLeft + 224, 13);
+
+  // Marcadores de evento: um ponto sobre a própria linha da métrica (no valor real daquele
+  // dia), em vez de uma marca solta no topo do gráfico — o pico fica visualmente "combinado"
+  // com a tendência, e não uma camada separada. Label (métrica, com contagem se mais de um
+  // alerta caiu no mesmo dia) fica acima do ponto; empilha por dia pra não sobrepor.
+  const markerColors = { CPU: '#2563eb', RAM: '#f97316', DiscoIO: '#16a34a' };
+  const metricKeyByName = { CPU: 'cpu', RAM: 'ram', DiscoIO: 'io' };
+  const labelStackByX = {};
+  events.forEach((ev) => {
+    const color = markerColors[ev.metric] || '#666';
+    const clampedIndex = Math.max(0, Math.min(n - 1, ev.dayIndex));
+    const x = xForIndex(clampedIndex);
+    const key = metricKeyByName[ev.metric];
+    const value = key ? (data[clampedIndex][key] || 0) : 0;
+    const y = paddingTop + plotH - (value / 100) * plotH;
+
+    ctx.beginPath();
+    ctx.arc(x, y, 5, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#ffffff';
+    ctx.stroke();
+
+    if (ev.alertEventId != null) {
+      lastCombinedMarkerHitboxes.push({
+        x, y, r: 9,
+        alertEventId: ev.alertEventId,
+        metric: ev.metric,
+        timestamp: ev.timestamp,
+        durationMinutes: ev.durationMinutes,
+        isInterrupted: ev.isInterrupted,
+      });
+    }
+
+    const stackIndex = labelStackByX[clampedIndex] || 0;
+    labelStackByX[clampedIndex] = stackIndex + 1;
+
+    const label = ev.label || ev.metric || '';
+    ctx.font = '11px Segoe UI';
+    const labelWidth = ctx.measureText(label).width;
+    const labelX = Math.min(x + 8, w - labelWidth - 4);
+    const labelY = Math.max(paddingTop + 10, y - 10 - stackIndex * 14);
+
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(labelX - 2, labelY - 10, labelWidth + 4, 13);
+    ctx.fillStyle = color;
+    ctx.fillText(label, labelX, labelY);
+  });
+
+  if (payload.usingCurrentAsBaseline) {
+    ctx.fillStyle = '#666';
+    ctx.font = '12px Segoe UI';
+    ctx.fillText('Sem tendência registrada pro período — usando leitura atual como referência.', paddingLeft, h - 4);
+  }
 }
 
 resizeCanvas();

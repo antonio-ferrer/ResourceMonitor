@@ -1,0 +1,22 @@
+<Window x:Class="ResourceMonitor.Gui.EpisodeDetailWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Detalhe do pico" Width="300" SizeToContent="Height" MaxHeight="480"
+        WindowStyle="ToolWindow" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+    <ScrollViewer Margin="16" VerticalScrollBarVisibility="Auto">
+        <StackPanel>
+            <TextBlock Text="{Binding StatusText}" FontWeight="Bold" TextWrapping="Wrap" Margin="0,0,0,4" />
+            <TextBlock Text="{Binding PopupPeriodLabel}" TextWrapping="Wrap" Margin="0,0,0,12" Foreground="#555" />
+
+            <TextBlock Margin="0,0,0,4" FontWeight="Bold" ToolTip="Os processos que mais colaboraram pra essa métrica no momento do pico"><Run Text="Top processos por " /><Run Text="{Binding PopupMetricLabel, Mode=OneWay}" /></TextBlock>
+            <ItemsControl ItemsSource="{Binding PopupProcessLines}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding}" Margin="0,0,0,2" TextTrimming="CharacterEllipsis" />
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </StackPanel>
+    </ScrollViewer>
+</Window>

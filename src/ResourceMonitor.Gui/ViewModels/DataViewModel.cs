@@ -31,7 +31,7 @@ public partial class DataViewModel : ObservableObject
 
     public ObservableCollection<AlertEpisodeRow> Episodes { get; } = new();
 
-    public event EventHandler<long>? ViewChartRequested;
+    public event EventHandler<(long AlertEventId, string Metric, DateTimeOffset Timestamp, double? DurationMinutes, bool IsInterrupted)>? ViewChartRequested;
 
     public DataViewModel(
         MonitoringService monitoringService,
@@ -124,7 +124,7 @@ public partial class DataViewModel : ObservableObject
     {
         if (SelectedEpisode is { } selected)
         {
-            ViewChartRequested?.Invoke(this, selected.StartEventId);
+            ViewChartRequested?.Invoke(this, (selected.StartEventId, selected.Metric, selected.Timestamp, selected.DurationMinutes, selected.IsInterrupted));
         }
     }
 
