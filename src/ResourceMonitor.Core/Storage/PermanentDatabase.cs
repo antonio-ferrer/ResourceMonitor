@@ -18,6 +18,7 @@ public sealed class PermanentDatabase : IDisposable
         _connection = new SqliteConnection($"Data Source={databaseFilePath}");
         _connection.Open();
         ApplySchema(_connection);
+        SeedOrUpdateBuiltInTemplates(_connection);
     }
 
     // Chamado pelo lado de leitura (AlertEventQueries) antes de abrir sua própria conexão
@@ -35,6 +36,7 @@ public sealed class PermanentDatabase : IDisposable
         using var connection = new SqliteConnection($"Data Source={databaseFilePath}");
         connection.Open();
         ApplySchema(connection);
+        SeedOrUpdateBuiltInTemplates(connection);
     }
 
     private static void ApplySchema(SqliteConnection connection)
@@ -106,6 +108,17 @@ public sealed class PermanentDatabase : IDisposable
                 DiskFreePercentSum REAL NOT NULL,
                 SystemDrive TEXT NOT NULL,
                 LastUpdatedUtc TEXT NOT NULL
+            );
+
+            -- Templates SQL (aba Templates, ex-Dados) — consultas somente-leitura salvas.
+            -- IsBuiltIn marca os 3 templates padrão (Tendência diária/Ofensores/Base de
+            -- picos), não editáveis/deletáveis pela UI; o resto é criado pelo usuário.
+            CREATE TABLE IF NOT EXISTS Templates (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                Name TEXT NOT NULL,
+                Command TEXT NOT NULL,
+                DefaultParameters TEXT NULL,
+                IsBuiltIn INTEGER NOT NULL DEFAULT 0
             );
             """;
             command.ExecuteNonQuery();
@@ -353,6 +366,168 @@ public sealed class PermanentDatabase : IDisposable
 
             MarkInterrupted(open.Id, open.LastActiveUtc ?? open.Timestamp);
         }
+    }
+
+    // Os 3 templates que cobrem o que a antiga aba Dados mostrava fixo (Tendência diária,
+    // Ofensores, Base de picos) — semeados uma vez, na primeira execução que criar o banco
+    // (ou migrar um banco antigo sem a tabela Templates). "Base de picos" é uma aproximação
+    // via subconsulta correlacionada do pareamento Start/End: não reproduz o tratamento de
+    // interrompidos/órfãos de AlertEventQueries.GetAlertEpisodes (que continua sendo a fonte
+    // de verdade usada por Gráficos > Eventos de Picos) — serve pra leitura/exploração rápida.
+    private static readonly (string Name, string Command)[] BuiltInTemplates =
+    {
+        ("Tendência diária", """
+            /* Média diária de uso de CPU, RAM, I/O de disco e espaço em disco, calculada a
+               partir das capturas automáticas feitas a cada ~5min. Mostra a tendência de
+               consumo ao longo do período selecionado, mesmo sem nenhum alerta ter disparado. */
+            SELECT Date,
+                   CpuRawSum / SampleCount AS AvgCpuRawPercent,
+                   RamRawSum / SampleCount AS AvgRamRawPercent,
+                   IoPercentSum / SampleCount AS AvgIoPercent,
+                   DiskFreePercentSum / SampleCount AS AvgDiskFreePercent,
+                   SystemDrive
+            FROM DailyAggregates
+            WHERE Date >= date($from) AND Date <= date($to)
+            ORDER BY Date;
+            """),
+        ("Ofensores", """
+            /* Processos que mais aparecem como consumidores de destaque nos alertas do
+               período: quantas vezes cada um apareceu (OccurrenceCount), o valor médio e
+               máximo registrado, e a última vez que foi visto. Ajuda a identificar quem
+               repetidamente estoura os limites configurados. */
+            SELECT s.ProcessName, s.Kind,
+                   COUNT(DISTINCT s.AlertEventId) AS OccurrenceCount,
+                   AVG(CASE s.Kind WHEN 'Cpu' THEN s.CpuPercent WHEN 'Ram' THEN s.RamMb ELSE s.IoKbPerSec END) AS AvgValue,
+                   MAX(CASE s.Kind WHEN 'Cpu' THEN s.CpuPercent WHEN 'Ram' THEN s.RamMb ELSE s.IoKbPerSec END) AS MaxValue,
+                   MAX(e.TimestampUtc) AS LastSeenUtc
+            FROM AlertProcessSnapshots s
+            JOIN AlertEvents e ON e.Id = s.AlertEventId
+            WHERE e.EventType = 'Start' AND e.TimestampUtc >= $from AND e.TimestampUtc <= $to
+            GROUP BY s.ProcessName, s.Kind
+            ORDER BY OccurrenceCount DESC, AvgValue DESC
+            LIMIT 20;
+            """),
+        ("Base de picos", """
+            /* Lista os alertas (picos) do período, pareando o início (Start) com o fim (End)
+               de cada episódio pra calcular a duração aproximada. É uma aproximação simples em
+               SQL puro — não trata os mesmos casos de borda (interrupção, órfãos) que a lógica
+               interna do app usa em Gráficos > Eventos de Picos; serve pra consulta/exploração
+               rápida, não é a fonte de verdade oficial. */
+            SELECT s.Id AS StartEventId, s.TimestampUtc AS StartTimestamp, s.Metric, s.DriveName,
+                   s.RawValue, s.AdjustedValue, s.Threshold, s.Interrupted, e.TimestampUtc AS EndTimestamp,
+                   ROUND((julianday(e.TimestampUtc) - julianday(s.TimestampUtc)) * 24 * 60, 1) AS DurationMinutes
+            FROM AlertEvents s
+            LEFT JOIN AlertEvents e ON e.EventType = 'End' AND e.Metric = s.Metric
+                AND IFNULL(e.DriveName, '') = IFNULL(s.DriveName, '')
+                AND e.TimestampUtc = (
+                    SELECT MIN(e2.TimestampUtc) FROM AlertEvents e2
+                    WHERE e2.EventType = 'End' AND e2.Metric = s.Metric
+                        AND IFNULL(e2.DriveName, '') = IFNULL(s.DriveName, '')
+                        AND e2.TimestampUtc > s.TimestampUtc
+                )
+            WHERE s.EventType = 'Start' AND s.TimestampUtc >= $from AND s.TimestampUtc <= $to
+            ORDER BY s.TimestampUtc DESC;
+            """),
+    };
+
+    // Recebe a conexão em vez de usar _connection direto — chamado tanto pelo construtor
+    // (conexão de escrita normal) quanto por EnsureSchema (idem, mesmo sendo um método
+    // estático só de migração: ela abre uma conexão gravável, só quem lê depois é que usa
+    // Mode=ReadOnly) — assim um banco de versão antiga, migrado só pelo lado de leitura
+    // antes de qualquer execução escrever nele, já ganha os templates padrão também.
+    //
+    // Roda em toda inicialização, não só quando a tabela está vazia: os 3 templates padrão
+    // nunca são editáveis pelo usuário (UpdateTemplate/DeleteTemplate ignoram IsBuiltIn=1),
+    // então não existe personalização a perder — se o SQL hardcoded aqui mudar numa
+    // atualização do app (ex: corrigir a aproximação de "Base de picos"), quem já tinha o
+    // banco criado numa versão anterior precisa ganhar a versão nova automaticamente, sem
+    // ficar preso pra sempre num SQL desatualizado que não tem como editar nem recriar.
+    // Identificado por Name (+ IsBuiltIn=1) — existe atualiza o Command, não existe insere.
+    private static void SeedOrUpdateBuiltInTemplates(SqliteConnection connection)
+    {
+        foreach (var (name, command) in BuiltInTemplates)
+        {
+            long? existingId = null;
+            using (var checkCommand = connection.CreateCommand())
+            {
+                checkCommand.CommandText = "SELECT Id FROM Templates WHERE Name = $name AND IsBuiltIn = 1;";
+                checkCommand.Parameters.AddWithValue("$name", name);
+                if (checkCommand.ExecuteScalar() is { } result)
+                {
+                    existingId = (long)result;
+                }
+            }
+
+            using var writeCommand = connection.CreateCommand();
+            if (existingId is { } id)
+            {
+                writeCommand.CommandText = "UPDATE Templates SET Command = $command WHERE Id = $id;";
+                writeCommand.Parameters.AddWithValue("$id", id);
+                writeCommand.Parameters.AddWithValue("$command", command);
+            }
+            else
+            {
+                writeCommand.CommandText = """
+                    INSERT INTO Templates (Name, Command, DefaultParameters, IsBuiltIn)
+                    VALUES ($name, $command, NULL, 1);
+                    """;
+                writeCommand.Parameters.AddWithValue("$name", name);
+                writeCommand.Parameters.AddWithValue("$command", command);
+            }
+
+            writeCommand.ExecuteNonQuery();
+        }
+    }
+
+    // Estáticos, mesmo padrão de ClearData: abrem sua própria conexão de escrita — a tela de
+    // Templates roda na GUI e não tem acesso à instância de PermanentDatabase de longa duração
+    // que o MonitoringService mantém internamente, então cada escrita aqui é uma operação
+    // avulsa e curta, sem coordenar com o loop de monitoramento.
+    public static long InsertTemplate(string databasePath, string name, string command, string? defaultParameters)
+    {
+        using var connection = new SqliteConnection($"Data Source={databasePath}");
+        connection.Open();
+        ApplySchema(connection);
+
+        using var insertCommand = connection.CreateCommand();
+        insertCommand.CommandText = """
+            INSERT INTO Templates (Name, Command, DefaultParameters, IsBuiltIn)
+            VALUES ($name, $command, $defaultParameters, 0);
+            SELECT last_insert_rowid();
+            """;
+        insertCommand.Parameters.AddWithValue("$name", name);
+        insertCommand.Parameters.AddWithValue("$command", command);
+        insertCommand.Parameters.AddWithValue("$defaultParameters", (object?)defaultParameters ?? DBNull.Value);
+
+        return (long)insertCommand.ExecuteScalar()!;
+    }
+
+    public static void UpdateTemplate(string databasePath, long id, string name, string command, string? defaultParameters)
+    {
+        using var connection = new SqliteConnection($"Data Source={databasePath}");
+        connection.Open();
+
+        using var command2 = connection.CreateCommand();
+        command2.CommandText = """
+            UPDATE Templates SET Name = $name, Command = $command, DefaultParameters = $defaultParameters
+            WHERE Id = $id AND IsBuiltIn = 0;
+            """;
+        command2.Parameters.AddWithValue("$id", id);
+        command2.Parameters.AddWithValue("$name", name);
+        command2.Parameters.AddWithValue("$command", command);
+        command2.Parameters.AddWithValue("$defaultParameters", (object?)defaultParameters ?? DBNull.Value);
+        command2.ExecuteNonQuery();
+    }
+
+    public static void DeleteTemplate(string databasePath, long id)
+    {
+        using var connection = new SqliteConnection($"Data Source={databasePath}");
+        connection.Open();
+
+        using var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM Templates WHERE Id = $id AND IsBuiltIn = 0;";
+        command.Parameters.AddWithValue("$id", id);
+        command.ExecuteNonQuery();
     }
 
     private static string FormatTimestamp(DateTimeOffset value) => value.ToString("O", CultureInfo.InvariantCulture);

@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Linq;
 using System.Text;
 
 namespace ResourceMonitor.Storage;
@@ -47,20 +48,16 @@ public static class CsvExporter
         File.WriteAllText(filePath, builder.ToString(), Encoding.UTF8);
     }
 
-    public static void ExportTopOffenders(string filePath, IEnumerable<TopOffenderRow> rows)
+    // Resultado de uma consulta de Templates (colunas dinâmicas, não conhecidas em tempo de
+    // compilação) — células já vêm pré-formatadas como string (ver TemplateQueries.ExecuteReadOnly).
+    public static void ExportQueryResult(string filePath, IReadOnlyList<string> columns, IReadOnlyList<IReadOnlyList<string?>> rows)
     {
         var builder = new StringBuilder();
-        builder.AppendLine("ProcessName,Kind,OccurrenceCount,AvgValue,MaxValue,LastSeenUtc");
+        builder.AppendLine(string.Join(",", columns.Select(Escape)));
 
         foreach (var row in rows)
         {
-            builder.AppendLine(string.Join(",",
-                Escape(row.ProcessName),
-                Escape(row.Kind),
-                row.OccurrenceCount.ToString(CultureInfo.InvariantCulture),
-                row.AvgValue.ToString("F1", CultureInfo.InvariantCulture),
-                row.MaxValue.ToString("F1", CultureInfo.InvariantCulture),
-                Escape(row.LastSeenUtc.ToLocalTime().ToString("O", CultureInfo.InvariantCulture))));
+            builder.AppendLine(string.Join(",", row.Select(cell => Escape(cell ?? string.Empty))));
         }
 
         File.WriteAllText(filePath, builder.ToString(), Encoding.UTF8);

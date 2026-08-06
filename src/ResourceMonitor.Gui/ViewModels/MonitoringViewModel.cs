@@ -7,7 +7,11 @@ using ResourceMonitor.Gui;
 using ResourceMonitor.Gui.Notifications;
 using ResourceMonitor.Monitoring;
 using ResourceMonitor.Sampling;
+using ResourceMonitor.Storage;
 using Application = System.Windows.Application;
+using MessageBox = System.Windows.MessageBox;
+using MessageBoxButton = System.Windows.MessageBoxButton;
+using MessageBoxImage = System.Windows.MessageBoxImage;
 
 namespace ResourceMonitor.Gui.ViewModels;
 
@@ -16,6 +20,7 @@ public partial class MonitoringViewModel : ObservableObject
     private readonly MonitoringService _monitoringService;
     private readonly string _dataDirectory;
     private readonly ITrayNotifier _trayNotifier;
+    private readonly Func<string> _getDatabasePath;
 
     [ObservableProperty] private int sampleIntervalSeconds;
     [ObservableProperty] private int consecutiveBreachesToAlert;
@@ -33,17 +38,24 @@ public partial class MonitoringViewModel : ObservableObject
     [ObservableProperty] private bool startWithWindows;
     [ObservableProperty] private string newExcludedProcessPattern = string.Empty;
 
+    // Realocado da antiga aba Dados (não é consulta, é ação administrativa — ver Templates).
+    [ObservableProperty] private bool clearCacheSelected = true;
+    [ObservableProperty] private bool clearTrendSelected = true;
+    [ObservableProperty] private bool clearPeaksSelected = true;
+
     public ObservableCollection<string> ExcludedProcesses { get; } = new();
     public ObservableCollection<DiskThresholdRow> DiskThresholds { get; } = new();
 
     public bool CanEditSettings => !IsRunning;
 
     public MonitoringViewModel(
-        MonitoringService monitoringService, MonitorSettings initialSettings, string dataDirectory, ITrayNotifier trayNotifier)
+        MonitoringService monitoringService, MonitorSettings initialSettings, string dataDirectory,
+        ITrayNotifier trayNotifier, Func<string> getDatabasePath)
     {
         _monitoringService = monitoringService;
         _dataDirectory = dataDirectory;
         _trayNotifier = trayNotifier;
+        _getDatabasePath = getDatabasePath;
 
         LoadFrom(initialSettings);
         IsRunning = _monitoringService.IsRunning;
@@ -225,6 +237,56 @@ public partial class MonitoringViewModel : ObservableObject
     }
 
     partial void OnStartWithWindowsChanged(bool value) => AutoStartManager.SetEnabled(value);
+
+    [RelayCommand]
+    private void ClearSelected()
+    {
+        if (!ClearCacheSelected && !ClearTrendSelected && !ClearPeaksSelected)
+        {
+            return;
+        }
+
+        // Cache é em memória, sem tabela em disco — só picos/tendência exigem o
+        // monitoramento parado (ClearData abre sua própria conexão, sem coordenar com
+        // uma instância de PermanentDatabase que porventura já esteja escrevendo).
+        if ((ClearTrendSelected || ClearPeaksSelected) && _monitoringService.IsRunning)
+        {
+            MessageBox.Show(
+                "Pare o monitoramento antes de limpar a tendência diária ou a base de picos.",
+                "ResourceMonitor",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
+        var items = new List<string>();
+        if (ClearCacheSelected) items.Add("cache (amostras em memória)");
+        if (ClearTrendSelected) items.Add("tendência diária");
+        if (ClearPeaksSelected) items.Add("base de picos (eventos, amostras e processos)");
+
+        var confirm = MessageBox.Show(
+            $"Isso apaga permanentemente: {string.Join(", ", items)}. Continuar?",
+            "Limpar dados",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+
+        if (confirm != System.Windows.MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        if (ClearCacheSelected)
+        {
+            _monitoringService.ClearCache();
+        }
+
+        if (ClearTrendSelected || ClearPeaksSelected)
+        {
+            PermanentDatabase.ClearData(_getDatabasePath(), ClearPeaksSelected, ClearTrendSelected);
+        }
+
+        StatusText = "Limpeza concluída.";
+    }
 
     private void OnFaulted(object? sender, Exception ex)
     {

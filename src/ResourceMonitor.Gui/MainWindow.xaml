@@ -14,11 +14,12 @@
         <conv:LocalDateTimeConverter x:Key="LocalDateTimeConverter" />
         <conv:DurationMinutesDisplayConverter x:Key="DurationMinutesDisplayConverter" />
         <conv:DiskUsageFromFreeConverter x:Key="DiskUsageFromFreeConverter" />
-        <conv:OffenderKindDisplayConverter x:Key="OffenderKindDisplayConverter" />
         <conv:GroupedProcessNameConverter x:Key="GroupedProcessNameConverter" />
         <conv:BoolToActiveLabelConverter x:Key="BoolToActiveLabelConverter" />
         <conv:BoolToActiveBackgroundConverter x:Key="BoolToActiveBackgroundConverter" />
         <conv:BoolToActiveForegroundConverter x:Key="BoolToActiveForegroundConverter" />
+        <conv:InverseBooleanToVisibilityConverter x:Key="InverseBoolToVis" />
+        <BooleanToVisibilityConverter x:Key="BoolToVis" />
 
         <Style x:Key="ActivePillStyle" TargetType="Border">
             <Setter Property="CornerRadius" Value="9" />
@@ -45,8 +46,7 @@
         <Menu DockPanel.Dock="Top" x:Name="MainMenu" BorderThickness="0,0,0,2" BorderBrush="#14171D">
             <MenuItem x:Name="MenuHome" Header="Home" Tag="Active" Style="{StaticResource MainMenuItemStyle}" Click="OnMenuHomeClick" />
             <MenuItem x:Name="MenuConfiguracoes" Header="Configurações" Style="{StaticResource MainMenuItemStyle}" Click="OnMenuConfiguracoesClick" />
-            <MenuItem x:Name="MenuDados" Header="Dados" Style="{StaticResource MainMenuItemStyle}" Click="OnMenuDadosClick" />
-            <MenuItem x:Name="MenuOfensores" Header="Ofensores" Style="{StaticResource MainMenuItemStyle}" Click="OnMenuOfensoresClick" />
+            <MenuItem x:Name="MenuDados" Header="Templates" Style="{StaticResource MainMenuItemStyle}" Click="OnMenuDadosClick" />
             <MenuItem x:Name="MenuGraficos" Header="Gráficos" Style="{StaticResource MainMenuItemStyle}">
                 <MenuItem x:Name="MenuGraficosDadosCorrentes" Header="Dados Correntes" Click="OnMenuGraficosDadosCorrentesClick" />
                 <MenuItem x:Name="MenuGraficosTendencia" Header="Tendência" Click="OnMenuGraficosTendenciaClick" />
@@ -242,6 +242,7 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
                 <UniformGrid Grid.Row="0" Columns="2" IsEnabled="{Binding CanEditSettings}">
@@ -344,122 +345,8 @@
                     <TextBlock Text="{Binding LastSampleText}" />
                 </StackPanel>
 
-                <TextBlock Grid.Row="5" HorizontalAlignment="Right" Margin="0,16,0,0" Foreground="Gray" FontSize="11">
-                    <Hyperlink NavigateUri="https://icons8.com" RequestNavigate="OnCreditHyperlinkRequestNavigate">Ícone por Icons8</Hyperlink>
-                </TextBlock>
-            </Grid>
-
-            <Grid x:Name="DataTabRoot" Margin="16" Visibility="Collapsed">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="1*" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="1.4*" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
-                </Grid.RowDefinitions>
-
-                <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,4" VerticalAlignment="Center">
-                    <TextBlock Text="Tendência diária" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,16,0" />
-                    <Button Content="Exportar CSV" Command="{Binding ExportDailyTrendCsvCommand}" Padding="12,4" />
-                </StackPanel>
-                <DataGrid Grid.Row="1" ItemsSource="{Binding DailyTrend}"
-                          AutoGenerateColumns="False" IsReadOnly="True" Margin="0,0,0,12">
-                    <DataGrid.Columns>
-                        <DataGridTextColumn Binding="{Binding Date, StringFormat='{}{0:dd/MM/yyyy}'}">
-                            <DataGridTextColumn.Header>
-                                <TextBlock Text="Data" ToolTip="Dia (horário local) a que a média se refere" />
-                            </DataGridTextColumn.Header>
-                        </DataGridTextColumn>
-                        <DataGridTextColumn Binding="{Binding AvgCpuRawPercent, StringFormat='{}{0:N1}%'}">
-                            <DataGridTextColumn.Header>
-                                <TextBlock Text="CPU médio" ToolTip="Uso médio de CPU no dia (bruto, sem descontar processos excluídos)" />
-                            </DataGridTextColumn.Header>
-                        </DataGridTextColumn>
-                        <DataGridTextColumn Binding="{Binding AvgRamRawPercent, StringFormat='{}{0:N1}%'}">
-                            <DataGridTextColumn.Header>
-                                <TextBlock Text="RAM médio" ToolTip="Uso médio de RAM no dia (bruto, sem descontar processos excluídos)" />
-                            </DataGridTextColumn.Header>
-                        </DataGridTextColumn>
-                        <DataGridTextColumn Binding="{Binding AvgIoPercent, StringFormat='{}{0:N1}%'}">
-                            <DataGridTextColumn.Header>
-                                <TextBlock Text="Disco I/O médio" ToolTip="Uso médio de I/O de disco no dia" />
-                            </DataGridTextColumn.Header>
-                        </DataGridTextColumn>
-                        <DataGridTextColumn Binding="{Binding AvgDiskFreePercent, Converter={StaticResource DiskUsageFromFreeConverter}}">
-                            <DataGridTextColumn.Header>
-                                <TextBlock Text="Disco em uso" ToolTip="Percentual médio ocupado no disco do sistema (100% - espaço livre)" />
-                            </DataGridTextColumn.Header>
-                        </DataGridTextColumn>
-                        <DataGridTextColumn Binding="{Binding SystemDrive}">
-                            <DataGridTextColumn.Header>
-                                <TextBlock Text="Unidade" ToolTip="Disco do sistema usado pra medir espaço livre/uso" />
-                            </DataGridTextColumn.Header>
-                        </DataGridTextColumn>
-                    </DataGrid.Columns>
-                </DataGrid>
-
-                <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,8" VerticalAlignment="Center">
-                    <TextBlock Text="Base de picos" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,16,0" />
-                    <Label Content="De:" VerticalAlignment="Center" />
-                    <DatePicker SelectedDate="{Binding FromDate}" Margin="4,0,12,0" />
-                    <Label Content="Até:" VerticalAlignment="Center" />
-                    <DatePicker SelectedDate="{Binding ToDate}" Margin="4,0,12,0" />
-                    <Button Content="Atualizar" Command="{Binding RefreshCommand}" Padding="12,4" />
-                </StackPanel>
-
-                <DataGrid Grid.Row="3" ItemsSource="{Binding Episodes}" SelectedItem="{Binding SelectedEpisode}"
-                          AutoGenerateColumns="False" IsReadOnly="True">
-                    <DataGrid.Columns>
-                        <DataGridTextColumn Binding="{Binding StartEventId}">
-                            <DataGridTextColumn.Header>
-                                <TextBlock Text="ID" ToolTip="Identificador do evento de início (Start)" />
-                            </DataGridTextColumn.Header>
-                        </DataGridTextColumn>
-                        <DataGridTextColumn Binding="{Binding Timestamp, Converter={StaticResource LocalDateTimeConverter}}">
-                            <DataGridTextColumn.Header>
-                                <TextBlock Text="Data/Hora" ToolTip="Quando o alerta começou" />
-                            </DataGridTextColumn.Header>
-                        </DataGridTextColumn>
-                        <DataGridTextColumn Binding="{Binding Converter={StaticResource DurationMinutesDisplayConverter}}">
-                            <DataGridTextColumn.Header>
-                                <TextBlock Text="Duração" ToolTip="Tempo entre o início do alerta e a recuperação. 'Maior que' aparece quando o monitoramento foi parado antes do alerta recuperar." />
-                            </DataGridTextColumn.Header>
-                        </DataGridTextColumn>
-                        <DataGridTextColumn Binding="{Binding Metric, Converter={StaticResource MetricDisplayConverter}}">
-                            <DataGridTextColumn.Header>
-                                <TextBlock Text="Métrica" ToolTip="Recurso que disparou o evento" />
-                            </DataGridTextColumn.Header>
-                        </DataGridTextColumn>
-                        <DataGridTextColumn Binding="{Binding DriveName}">
-                            <DataGridTextColumn.Header>
-                                <TextBlock Text="Unidade" ToolTip="Unidade de disco afetada (quando aplicável)" />
-                            </DataGridTextColumn.Header>
-                        </DataGridTextColumn>
-                        <DataGridTextColumn Binding="{Binding RawValue, StringFormat='{}{0:N1}%'}">
-                            <DataGridTextColumn.Header>
-                                <TextBlock Text="Valor bruto" ToolTip="Valor medido no momento do evento, sem descontar os processos excluídos" />
-                            </DataGridTextColumn.Header>
-                        </DataGridTextColumn>
-                        <DataGridTextColumn Binding="{Binding AdjustedValue, StringFormat='{}{0:N1}%'}">
-                            <DataGridTextColumn.Header>
-                                <TextBlock Text="Valor líquido" ToolTip="Valor descontando os processos excluídos (só se aplica a CPU/RAM)" />
-                            </DataGridTextColumn.Header>
-                        </DataGridTextColumn>
-                        <DataGridTextColumn Binding="{Binding Threshold, StringFormat='{}{0:N1}%'}">
-                            <DataGridTextColumn.Header>
-                                <TextBlock Text="Limite" ToolTip="Limite configurado que foi violado" />
-                            </DataGridTextColumn.Header>
-                        </DataGridTextColumn>
-                    </DataGrid.Columns>
-                </DataGrid>
-
-                <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,8,0,0">
-                    <Button Content="Exportar CSV" Command="{Binding ExportCsvCommand}" Padding="12,4" Margin="0,0,8,0" />
-                    <Button Content="Ver gráfico" Command="{Binding ViewChartCommand}" Padding="12,4" Margin="0,0,8,0" />
-                    <TextBlock Text="{Binding StatusText}" VerticalAlignment="Center" />
-                </StackPanel>
-
+                <!-- Realocado da antiga aba Dados: não é uma consulta, é ação administrativa,
+                     então fica em Configurações em vez da tela de Templates. -->
                 <Border Grid.Row="5" BorderBrush="Gray" BorderThickness="1" CornerRadius="3" Padding="10" Margin="0,12,0,0">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="Limpeza:" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,16,0" />
@@ -474,64 +361,78 @@
                         <Button Content="Limpar selecionados" Command="{Binding ClearSelectedCommand}" Padding="12,4" />
                     </StackPanel>
                 </Border>
+
+                <TextBlock Grid.Row="6" HorizontalAlignment="Right" Margin="0,16,0,0" Foreground="Gray" FontSize="11">
+                    <Hyperlink NavigateUri="https://icons8.com" RequestNavigate="OnCreditHyperlinkRequestNavigate">Ícone por Icons8</Hyperlink>
+                </TextBlock>
             </Grid>
 
-            <Grid x:Name="OffendersTabRoot" Margin="16" Visibility="Collapsed">
+            <Grid x:Name="TemplatesTabRoot" Margin="16" Visibility="Collapsed">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
-                    <RowDefinition Height="1*" />
                     <RowDefinition Height="Auto" />
+                    <!-- Altura ajustada em code-behind (OnTemplatesEditorVisibilityChanged), não
+                         por binding — RowDefinition não herda DataContext de forma confiável no
+                         WPF, então {Binding} aqui simplesmente não reagia à troca do toggle. -->
+                    <RowDefinition x:Name="EditorRow" Height="0" />
+                    <RowDefinition x:Name="EditorSplitterRow" Height="0" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="1*" MinHeight="80" />
                 </Grid.RowDefinitions>
 
-                <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8" VerticalAlignment="Center">
-                    <TextBlock Text="Aplicativos que mais estouram os limites" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,16,0" />
+                <!-- Seletor de template existente — some quando IsCreatingNew (ver painel abaixo) -->
+                <WrapPanel Grid.Row="0" Margin="0,0,0,8" Visibility="{Binding IsCreatingNew, Converter={StaticResource InverseBoolToVis}}">
+                    <Label Content="Template:" VerticalAlignment="Center" />
+                    <ComboBox ItemsSource="{Binding Templates}" SelectedItem="{Binding SelectedTemplate}"
+                              DisplayMemberPath="Name" Width="220" Margin="4,0,16,0" VerticalAlignment="Center" />
+                    <Button Content="Novo Template" Command="{Binding IniciarNovoTemplateCommand}" Padding="12,4" Margin="0,0,8,0" />
+                    <Button Content="Salvar alterações" Command="{Binding SalvarAlteracoesCommand}" Padding="12,4" Margin="0,0,8,0"
+                            ToolTip="Salva o SQL editado de volta nesse template — só disponível pra templates criados por você" />
+                    <Button Content="Excluir" Command="{Binding ExcluirTemplateCommand}" Padding="12,4"
+                            ToolTip="Só disponível pra templates criados por você — os 3 padrão não podem ser excluídos" />
+                </WrapPanel>
+
+                <!-- Criação de novo template — só aparece com IsCreatingNew -->
+                <WrapPanel Grid.Row="0" Margin="0,0,0,8" Visibility="{Binding IsCreatingNew, Converter={StaticResource BoolToVis}}">
+                    <Label Content="Nome:" VerticalAlignment="Center" />
+                    <TextBox Text="{Binding NewTemplateName, UpdateSourceTrigger=PropertyChanged}"
+                              Width="220" Margin="4,0,16,0" VerticalAlignment="Center" />
+                    <Button Content="Salvar" Command="{Binding SalvarNovoTemplateCommand}" Padding="12,4" Margin="0,0,8,0" />
+                    <Button Content="Cancelar" Command="{Binding CancelarNovoTemplateCommand}" Padding="12,4" Margin="0,0,16,0" />
+                    <TextBlock Text="{Binding NewTemplateError}" Foreground="Red" VerticalAlignment="Center" />
+                </WrapPanel>
+
+                <WrapPanel Grid.Row="1" Margin="0,0,0,8">
                     <Label Content="De:" VerticalAlignment="Center" />
-                    <DatePicker SelectedDate="{Binding PeriodFrom}" Margin="4,0,12,0" />
+                    <DatePicker SelectedDate="{Binding PeriodFrom}" VerticalAlignment="Center" Margin="4,0,16,0" />
                     <Label Content="Até:" VerticalAlignment="Center" />
-                    <DatePicker SelectedDate="{Binding PeriodTo}" Margin="4,0,12,0" />
-                    <Button Content="Atualizar" Command="{Binding RefreshCommand}" Padding="12,4" />
-                </StackPanel>
+                    <DatePicker SelectedDate="{Binding PeriodTo}" VerticalAlignment="Center" Margin="4,0,16,0"
+                                ToolTip="$from/$to ficam disponíveis pro SQL do template, formatados em UTC ISO-8601" />
+                    <Button Content="Executar" Command="{Binding ExecutarCommand}" Padding="12,4" Margin="0,0,8,0" />
+                    <Button Content="Exportar CSV" Command="{Binding ExportarCsvCommand}" Padding="12,4" Margin="0,0,8,0" />
+                    <Button Content="Editor" Command="{Binding AlternarEditorCommand}" Padding="12,4"
+                            ToolTip="Mostra/esconde o editor SQL" />
+                </WrapPanel>
 
-                <DataGrid Grid.Row="1" ItemsSource="{Binding Offenders}"
-                          AutoGenerateColumns="False" IsReadOnly="True">
-                    <DataGrid.Columns>
-                        <DataGridTextColumn Binding="{Binding ProcessName}">
-                            <DataGridTextColumn.Header>
-                                <TextBlock Text="Processo" ToolTip="Nome do processo" />
-                            </DataGridTextColumn.Header>
-                        </DataGridTextColumn>
-                        <DataGridTextColumn Binding="{Binding Kind, Converter={StaticResource OffenderKindDisplayConverter}}">
-                            <DataGridTextColumn.Header>
-                                <TextBlock Text="Métrica" ToolTip="Em qual métrica esse processo apareceu como consumidor de destaque" />
-                            </DataGridTextColumn.Header>
-                        </DataGridTextColumn>
-                        <DataGridTextColumn Binding="{Binding OccurrenceCount}">
-                            <DataGridTextColumn.Header>
-                                <TextBlock Text="Ocorrências" ToolTip="Em quantos alertas distintos esse processo apareceu como consumidor de destaque" />
-                            </DataGridTextColumn.Header>
-                        </DataGridTextColumn>
-                        <DataGridTextColumn Binding="{Binding AvgValue, StringFormat='{}{0:N1}'}">
-                            <DataGridTextColumn.Header>
-                                <TextBlock Text="Valor médio" ToolTip="Média de CPU (%), RAM (MB) ou I/O (KB/s), conforme a métrica" />
-                            </DataGridTextColumn.Header>
-                        </DataGridTextColumn>
-                        <DataGridTextColumn Binding="{Binding MaxValue, StringFormat='{}{0:N1}'}">
-                            <DataGridTextColumn.Header>
-                                <TextBlock Text="Valor máximo" ToolTip="Maior valor registrado nesse período" />
-                            </DataGridTextColumn.Header>
-                        </DataGridTextColumn>
-                        <DataGridTextColumn Binding="{Binding LastSeenUtc, Converter={StaticResource LocalDateTimeConverter}}">
-                            <DataGridTextColumn.Header>
-                                <TextBlock Text="Última ocorrência" ToolTip="Quando esse processo apareceu mais recentemente" />
-                            </DataGridTextColumn.Header>
-                        </DataGridTextColumn>
-                    </DataGrid.Columns>
-                </DataGrid>
+                <Border Grid.Row="2" BorderBrush="Gray" BorderThickness="1" CornerRadius="3"
+                        Visibility="{Binding IsEditorVisible, Converter={StaticResource BoolToVis}}">
+                    <wv2:WebView2 x:Name="SqlEditorWebView" />
+                </Border>
 
-                <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,8,0,0">
-                    <Button Content="Exportar CSV" Command="{Binding ExportCsvCommand}" Padding="12,4" Margin="0,0,8,0" />
-                    <TextBlock Text="{Binding StatusText}" VerticalAlignment="Center" />
-                </StackPanel>
+                <!-- Arrasta pra redimensionar o editor SQL em relação à grade de resultado
+                     abaixo (linha 2 acima / linha 5 abaixo, ver ResizeBehavior). -->
+                <GridSplitter Grid.Row="3" Height="6" HorizontalAlignment="Stretch" VerticalAlignment="Center"
+                              Background="#DDDDDD" ResizeBehavior="PreviousAndNext" ShowsPreview="True"
+                              Visibility="{Binding IsEditorVisible, Converter={StaticResource BoolToVis}}" />
+
+                <TextBlock Grid.Row="4" Text="{Binding StatusText}" Margin="0,8,0,8" />
+
+                <!-- Colunas construídas em code-behind (ver OnTemplateResultReady) — o
+                     resultado de uma consulta arbitrária não tem colunas fixas em tempo de
+                     compilação. Duplo-clique numa linha abre o popup de pico quando o
+                     resultado tem StartEventId+Metric (ver OnTemplateResultsGridDoubleClick). -->
+                <DataGrid Grid.Row="5" x:Name="TemplateResultsGrid" AutoGenerateColumns="False" IsReadOnly="True"
+                          MouseDoubleClick="OnTemplateResultsGridDoubleClick" />
             </Grid>
 
             <Grid x:Name="ChartLiveTabRoot" Margin="16" Visibility="Collapsed">

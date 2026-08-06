@@ -1,9 +1,12 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
+using System.Windows.Input;
 using System.Windows.Navigation;
 using ResourceMonitor.Gui.ViewModels;
 using Application = System.Windows.Application;
@@ -14,10 +17,9 @@ public partial class MainWindow : Window
 {
     private readonly HomeViewModel _homeViewModel;
     private readonly MonitoringViewModel _monitoringViewModel;
-    private readonly DataViewModel _dataViewModel;
+    private readonly TemplatesViewModel _templatesViewModel;
     private readonly ChartViewModel _chartViewModel;
     private readonly ReportViewModel _reportViewModel;
-    private readonly OffendersViewModel _offendersViewModel;
 
     private bool _homeWebViewReady;
     private string? _pendingHomeJson;
@@ -34,6 +36,9 @@ public partial class MainWindow : Window
     private bool _eventsWebViewReady;
     private string? _pendingEventsJson;
 
+    private bool _sqlEditorWebViewReady;
+    private string? _pendingSqlEditorText;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -46,23 +51,25 @@ public partial class MainWindow : Window
         }
 
         _homeViewModel = new HomeViewModel(app.MonitoringService, app.Settings, app.LiveMonitor);
-        _monitoringViewModel = new MonitoringViewModel(app.MonitoringService, app.Settings, app.DataDirectory, app.TrayNotifier);
-        _dataViewModel = new DataViewModel(app.MonitoringService, GetDatabasePath, app.AlertEventQueries, app.TraceLogger);
+        _monitoringViewModel = new MonitoringViewModel(app.MonitoringService, app.Settings, app.DataDirectory, app.TrayNotifier, GetDatabasePath);
+        _templatesViewModel = new TemplatesViewModel(GetDatabasePath, app.TemplateQueries);
         _chartViewModel = new ChartViewModel(app.LiveMonitor, GetDatabasePath, app.AlertEventQueries);
         _reportViewModel = new ReportViewModel(GetDatabasePath, app.AlertEventQueries);
-        _offendersViewModel = new OffendersViewModel(GetDatabasePath, app.AlertEventQueries);
 
         HomeTabRoot.DataContext = _homeViewModel;
         MonitoringTabRoot.DataContext = _monitoringViewModel;
-        DataTabRoot.DataContext = _dataViewModel;
+        TemplatesTabRoot.DataContext = _templatesViewModel;
         ChartLiveTabRoot.DataContext = _chartViewModel;
         ChartTrendTabRoot.DataContext = _chartViewModel;
         ChartEventosTabRoot.DataContext = _chartViewModel;
         ReportTabRoot.DataContext = _reportViewModel;
-        OffendersTabRoot.DataContext = _offendersViewModel;
+
+        _templatesViewModel.GetEditorTextAsync = GetSqlEditorTextAsync;
+        _templatesViewModel.SetEditorText = SetSqlEditorText;
+        _templatesViewModel.ResultReady += OnTemplateResultReady;
+        _templatesViewModel.PropertyChanged += OnTemplatesViewModelPropertyChanged;
 
         _homeViewModel.LiveSamplesReady += OnHomeLiveSamplesReady;
-        _dataViewModel.ViewChartRequested += OnViewChartRequested;
         _chartViewModel.LiveSamplesReady += OnLiveSamplesReady;
         _chartViewModel.DailyTrendReady += OnDailyTrendReady;
         _chartViewModel.TrendWithEventsReady += OnTrendWithEventsReady;
@@ -138,14 +145,14 @@ public partial class MainWindow : Window
     {
         foreach (var candidate in new UIElement[]
         {
-            HomeTabRoot, MonitoringTabRoot, DataTabRoot, OffendersTabRoot,
+            HomeTabRoot, MonitoringTabRoot, TemplatesTabRoot,
             ChartLiveTabRoot, ChartTrendTabRoot, ChartEventosTabRoot, ReportTabRoot, HelpWebView,
         })
         {
             candidate.Visibility = ReferenceEquals(candidate, section) ? Visibility.Visible : Visibility.Collapsed;
         }
 
-        foreach (var item in new[] { MenuHome, MenuConfiguracoes, MenuDados, MenuOfensores, MenuGraficos, MenuRelatorios, MenuAjuda })
+        foreach (var item in new[] { MenuHome, MenuConfiguracoes, MenuDados, MenuGraficos, MenuRelatorios, MenuAjuda })
         {
             item.Tag = ReferenceEquals(item, activeMenuItem) ? "Active" : null;
         }
@@ -173,9 +180,166 @@ public partial class MainWindow : Window
 
     private void OnMenuConfiguracoesClick(object sender, RoutedEventArgs e) => ShowSection(MonitoringTabRoot, MenuConfiguracoes);
 
-    private void OnMenuDadosClick(object sender, RoutedEventArgs e) => ShowSection(DataTabRoot, MenuDados);
+    private async void OnMenuDadosClick(object sender, RoutedEventArgs e)
+    {
+        ShowSection(TemplatesTabRoot, MenuDados);
+        await EnsureSqlEditorWebViewInitializedAsync();
+        await _templatesViewModel.EnsureInitialPeriodAsync();
+    }
 
-    private void OnMenuOfensoresClick(object sender, RoutedEventArgs e) => ShowSection(OffendersTabRoot, MenuOfensores);
+    private bool _sqlEditorWebViewInitStarted;
+
+    // Mesmo padrão lazy-init de EventsChartWebView/ReportWebView — inicializado só na
+    // primeira vez que a tela é aberta. Diferente dos outros: aqui a gente REALMENTE espera
+    // o NavigationCompleted (via TaskCompletionSource) antes de retornar — Executar logo em
+    // seguida (EnsureInitialPeriodAsync chama ExecutarAsync) precisa ler o texto do editor
+    // via getValue(), que só existe depois que o setValue(comando inicial) já rodou.
+    private async Task EnsureSqlEditorWebViewInitializedAsync()
+    {
+        if (_sqlEditorWebViewInitStarted)
+        {
+            return;
+        }
+
+        _sqlEditorWebViewInitStarted = true;
+
+        var editorHtmlUri = new Uri(Path.Combine(AppContext.BaseDirectory, "Assets", "sql-editor.html")).AbsoluteUri;
+        var navigationCompleted = new TaskCompletionSource();
+
+        await SqlEditorWebView.EnsureCoreWebView2Async();
+        SqlEditorWebView.CoreWebView2.NavigationCompleted += (_, _) =>
+        {
+            _sqlEditorWebViewReady = true;
+            navigationCompleted.TrySetResult();
+        };
+        SqlEditorWebView.CoreWebView2.Navigate(editorHtmlUri);
+
+        await navigationCompleted.Task;
+
+        var initialText = _pendingSqlEditorText ?? _templatesViewModel.SelectedTemplate?.Command ?? string.Empty;
+        _pendingSqlEditorText = null;
+        await SqlEditorWebView.ExecuteScriptAsync($"setValue({JsonSerializer.Serialize(initialText)})");
+    }
+
+    // RowDefinition não herda DataContext de forma confiável no WPF ({Binding} direto na
+    // altura da linha simplesmente não reagia à troca do toggle) — então o toggle do editor
+    // (botão "Editor") ajusta a altura das linhas diretamente aqui, via PropertyChanged do
+    // ViewModel, em vez de um binding de XAML.
+    private void OnTemplatesViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(TemplatesViewModel.IsEditorVisible))
+        {
+            return;
+        }
+
+        var visible = _templatesViewModel.IsEditorVisible;
+        EditorRow.Height = new GridLength(visible ? 180 : 0);
+        EditorSplitterRow.Height = new GridLength(visible ? 6 : 0);
+    }
+
+    private void SetSqlEditorText(string text)
+    {
+        if (_sqlEditorWebViewReady)
+        {
+            _ = SqlEditorWebView.ExecuteScriptAsync($"setValue({JsonSerializer.Serialize(text)})");
+        }
+        else
+        {
+            _pendingSqlEditorText = text;
+        }
+    }
+
+    private async Task<string> GetSqlEditorTextAsync()
+    {
+        if (!_sqlEditorWebViewReady)
+        {
+            return string.Empty;
+        }
+
+        var json = await SqlEditorWebView.ExecuteScriptAsync("getValue()");
+        return JsonSerializer.Deserialize<string>(json) ?? string.Empty;
+    }
+
+    // Colunas não são conhecidas em tempo de compilação (resultado de SQL arbitrário) —
+    // primeiro precedente do projeto com DataGridTextColumn construída em code-behind em
+    // vez de XAML. Binding por índice — cada linha é um IReadOnlyList<string?> (ver
+    // TemplateQueries.ExecuteReadOnly), que expõe indexador compatível com o binding do WPF.
+    private void OnTemplateResultReady(object? sender, QueryResult result)
+    {
+        TemplateResultsGrid.Columns.Clear();
+        for (var i = 0; i < result.Columns.Count; i++)
+        {
+            TemplateResultsGrid.Columns.Add(new DataGridTextColumn
+            {
+                Header = result.Columns[i],
+                Binding = new System.Windows.Data.Binding($"[{i}]"),
+            });
+        }
+
+        TemplateResultsGrid.ItemsSource = result.Rows;
+    }
+
+    // Caso especial: se o resultado tiver StartEventId+Metric (como o template "Base de
+    // picos" sempre tem), duplo-clique na linha abre o mesmo popup de detalhe do pico que
+    // "Ver gráfico" abria na antiga aba Dados — reaproveita EpisodeDetailWindow.
+    private async void OnTemplateResultsGridDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (TemplateResultsGrid.SelectedItem is not IReadOnlyList<string?> row)
+        {
+            return;
+        }
+
+        var columns = TemplateResultsGrid.Columns;
+        var startEventIdIndex = FindColumnIndex(columns, "StartEventId");
+        var metricIndex = FindColumnIndex(columns, "Metric");
+        if (startEventIdIndex < 0 || metricIndex < 0)
+        {
+            return;
+        }
+
+        if (!long.TryParse(row[startEventIdIndex], out var alertEventId))
+        {
+            return;
+        }
+
+        var metric = row[metricIndex] ?? string.Empty;
+
+        var timestampIndex = FindColumnIndex(columns, "StartTimestamp");
+        var timestamp = timestampIndex >= 0 && row[timestampIndex] is { } timestampText
+            && DateTimeOffset.TryParse(timestampText, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsedTimestamp)
+            ? parsedTimestamp
+            : DateTimeOffset.UtcNow;
+
+        var durationIndex = FindColumnIndex(columns, "DurationMinutes");
+        double? durationMinutes = durationIndex >= 0 && double.TryParse(row[durationIndex], NumberStyles.Float, CultureInfo.InvariantCulture, out var parsedDuration)
+            ? parsedDuration
+            : null;
+
+        var interruptedIndex = FindColumnIndex(columns, "Interrupted");
+        var isInterrupted = interruptedIndex >= 0 && row[interruptedIndex] is "1" or "True" or "true";
+
+        ShowSection(ChartEventosTabRoot, MenuGraficos);
+        await EnsureEventsWebViewsInitializedAsync();
+        await _chartViewModel.EnsureInitialPeriodAsync();
+        _chartViewModel.LoadForAlertEvent(alertEventId, metric, timestamp, durationMinutes, isInterrupted);
+        ShowEpisodeDetailPopup();
+    }
+
+    private static int FindColumnIndex(IEnumerable<DataGridColumn> columns, string name)
+    {
+        var index = 0;
+        foreach (var column in columns)
+        {
+            if (column.Header is string header && string.Equals(header, name, StringComparison.OrdinalIgnoreCase))
+            {
+                return index;
+            }
+
+            index++;
+        }
+
+        return -1;
+    }
 
     private void OnMenuGraficosDadosCorrentesClick(object sender, RoutedEventArgs e) => ShowSection(ChartLiveTabRoot, MenuGraficos);
 
@@ -305,14 +469,6 @@ public partial class MainWindow : Window
         HelpWebView.CoreWebView2.Navigate(helpHtmlUri);
     }
 
-    private async void OnViewChartRequested(object? sender, (long AlertEventId, string Metric, DateTimeOffset Timestamp, double? DurationMinutes, bool IsInterrupted) e)
-    {
-        ShowSection(ChartEventosTabRoot, MenuGraficos);
-        await EnsureEventsWebViewsInitializedAsync();
-        await _chartViewModel.EnsureInitialPeriodAsync();
-        _chartViewModel.LoadForAlertEvent(e.AlertEventId, e.Metric, e.Timestamp, e.DurationMinutes, e.IsInterrupted);
-        ShowEpisodeDetailPopup();
-    }
 
     private void OnHomeLiveSamplesReady(object? sender, string json)
     {

@@ -29,6 +29,9 @@
     <None Include="Assets\ajuda.html">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Include="Assets\sql-editor.html">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <Resource Include="Assets\app.ico" />
   </ItemGroup>
 

@@ -1,0 +1,54 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>ResourceMonitor - Editor SQL</title>
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; background: #ffffff; }
+
+  /* Caixa de texto simples — a versão anterior tinha um <pre> colorido por baixo pra
+     destacar a sintaxe, mas o texto real (textarea) e o texto colorido (pre) são dois
+     elementos com quebra de linha calculada separadamente; bastava um mínimo de diferença
+     de largura disponível (ex: barra de rolagem aparecendo num e não no outro) pra fazer
+     cada um quebrar linha num ponto diferente, e o descompasso crescia a cada linha. Sem
+     solução robusta o bastante no tempo disponível — melhor um textarea legível e confiável
+     do que um destaque de sintaxe que desalinha o cursor. */
+  textarea {
+    box-sizing: border-box;
+    width: 100%; height: 100%;
+    margin: 0; padding: 8px; border: 0;
+    font: 13px/1.5 "Cascadia Code", Consolas, "Courier New", monospace;
+    color: #14171d;
+    resize: none;
+  }
+</style>
+</head>
+<body>
+<textarea id="input" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>
+<script>
+const textarea = document.getElementById('input');
+
+// Tab insere espaços em vez de mover o foco pra fora do editor — cortesia mínima de editor
+// de código, sem isso digitar SQL com indentação vira impossível.
+textarea.addEventListener('keydown', (evt) => {
+  if (evt.key === 'Tab') {
+    evt.preventDefault();
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    textarea.value = textarea.value.slice(0, start) + '    ' + textarea.value.slice(end);
+    textarea.selectionStart = textarea.selectionEnd = start + 4;
+  }
+});
+
+// Chamado pelo host (C#) ao trocar de template selecionado.
+function setValue(text) {
+  textarea.value = text || '';
+}
+
+// Lido pelo host via ExecuteScriptAsync("getValue()") no clique de Executar/Salvar.
+function getValue() {
+  return textarea.value;
+}
+</script>
+</body>
+</html>

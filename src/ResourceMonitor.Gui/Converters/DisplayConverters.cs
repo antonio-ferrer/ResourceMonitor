@@ -1,10 +1,23 @@
 using System.Globalization;
+using System.Windows;
 using System.Windows.Data;
 using System.Windows.Media;
 using ResourceMonitor.Sampling;
 using ResourceMonitor.Storage;
 
 namespace ResourceMonitor.Gui.Converters;
+
+// Tela de Templates alterna entre "escolher template existente" e "criar novo" (IsCreatingNew)
+// — esse é o inverso do BooleanToVisibilityConverter embutido do WPF, pro painel que some
+// quando o outro aparece.
+public sealed class InverseBooleanToVisibilityConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object parameter, CultureInfo culture) =>
+        value is true ? Visibility.Collapsed : Visibility.Visible;
+
+    public object ConvertBack(object? value, Type targetType, object parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}
 
 // "claude" vira "claude (2)" quando o agrupamento juntou mais de um processo com esse nome
 // (ver ResourceSampler.GetTopProcessesGrouped) — só mostra a contagem quando > 1, senão some.
@@ -64,23 +77,6 @@ public sealed class MetricDisplayConverter : IValueConverter
         "DiscoIO" => "Disco (I/O)",
         "CPU" => "CPU",
         "RAM" => "RAM",
-        _ => value ?? string.Empty,
-    };
-
-    public object ConvertBack(object? value, Type targetType, object parameter, CultureInfo culture) =>
-        throw new NotSupportedException();
-}
-
-// Traduz o Kind de AlertProcessSnapshots (Cpu/Ram/Io) pro rótulo exibido na grid de Ofensores —
-// é um conjunto de valores diferente do Metric de AlertEvents (CPU/RAM/DiscoIO/DiscoLivre),
-// então não dá pra reaproveitar o MetricDisplayConverter acima.
-public sealed class OffenderKindDisplayConverter : IValueConverter
-{
-    public object Convert(object? value, Type targetType, object parameter, CultureInfo culture) => value switch
-    {
-        "Cpu" => "CPU",
-        "Ram" => "RAM",
-        "Io" => "Disco (I/O)",
         _ => value ?? string.Empty,
     };
 

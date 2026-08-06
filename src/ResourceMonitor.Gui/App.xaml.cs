@@ -31,6 +31,8 @@ public partial class App : Application
 
     public AlertEventQueries AlertEventQueries { get; private set; } = new(new NullTraceLogger());
 
+    public TemplateQueries TemplateQueries { get; private set; } = new(new NullTraceLogger());
+
     public ITrayNotifier TrayNotifier { get; private set; } = null!;
 
     public bool IsExiting { get; private set; }
@@ -69,6 +71,7 @@ public partial class App : Application
 
         TraceLogger = TraceLoggerFactory.Create(e.Args, Path.Combine(DataDirectory, "logs"));
         AlertEventQueries = new AlertEventQueries(TraceLogger);
+        TemplateQueries = new TemplateQueries(TraceLogger);
 
         TraceLogger.Trace("App", $"OnStartup iniciado. Args=[{string.Join(", ", e.Args)}] DataDirectory='{DataDirectory}'");
         TraceLogger.Trace("App", $"Cultura da thread ANTES do override: {CultureInfo.CurrentCulture.Name} (dd/MM/yyyy? {CultureInfo.CurrentCulture.DateTimeFormat.ShortDatePattern})");
