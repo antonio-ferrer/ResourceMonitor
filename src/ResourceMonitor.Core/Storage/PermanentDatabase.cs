@@ -117,7 +117,6 @@ public sealed class PermanentDatabase : IDisposable
                 Id INTEGER PRIMARY KEY AUTOINCREMENT,
                 Name TEXT NOT NULL,
                 Command TEXT NOT NULL,
-                DefaultParameters TEXT NULL,
                 IsBuiltIn INTEGER NOT NULL DEFAULT 0
             );
             """;
@@ -468,8 +467,8 @@ public sealed class PermanentDatabase : IDisposable
             else
             {
                 writeCommand.CommandText = """
-                    INSERT INTO Templates (Name, Command, DefaultParameters, IsBuiltIn)
-                    VALUES ($name, $command, NULL, 1);
+                    INSERT INTO Templates (Name, Command, IsBuiltIn)
+                    VALUES ($name, $command, 1);
                     """;
                 writeCommand.Parameters.AddWithValue("$name", name);
                 writeCommand.Parameters.AddWithValue("$command", command);
@@ -483,7 +482,7 @@ public sealed class PermanentDatabase : IDisposable
     // Templates roda na GUI e não tem acesso à instância de PermanentDatabase de longa duração
     // que o MonitoringService mantém internamente, então cada escrita aqui é uma operação
     // avulsa e curta, sem coordenar com o loop de monitoramento.
-    public static long InsertTemplate(string databasePath, string name, string command, string? defaultParameters)
+    public static long InsertTemplate(string databasePath, string name, string command)
     {
         using var connection = new SqliteConnection($"Data Source={databasePath}");
         connection.Open();
@@ -491,31 +490,29 @@ public sealed class PermanentDatabase : IDisposable
 
         using var insertCommand = connection.CreateCommand();
         insertCommand.CommandText = """
-            INSERT INTO Templates (Name, Command, DefaultParameters, IsBuiltIn)
-            VALUES ($name, $command, $defaultParameters, 0);
+            INSERT INTO Templates (Name, Command, IsBuiltIn)
+            VALUES ($name, $command, 0);
             SELECT last_insert_rowid();
             """;
         insertCommand.Parameters.AddWithValue("$name", name);
         insertCommand.Parameters.AddWithValue("$command", command);
-        insertCommand.Parameters.AddWithValue("$defaultParameters", (object?)defaultParameters ?? DBNull.Value);
 
         return (long)insertCommand.ExecuteScalar()!;
     }
 
-    public static void UpdateTemplate(string databasePath, long id, string name, string command, string? defaultParameters)
+    public static void UpdateTemplate(string databasePath, long id, string name, string command)
     {
         using var connection = new SqliteConnection($"Data Source={databasePath}");
         connection.Open();
 
         using var command2 = connection.CreateCommand();
         command2.CommandText = """
-            UPDATE Templates SET Name = $name, Command = $command, DefaultParameters = $defaultParameters
+            UPDATE Templates SET Name = $name, Command = $command
             WHERE Id = $id AND IsBuiltIn = 0;
             """;
         command2.Parameters.AddWithValue("$id", id);
         command2.Parameters.AddWithValue("$name", name);
         command2.Parameters.AddWithValue("$command", command);
-        command2.Parameters.AddWithValue("$defaultParameters", (object?)defaultParameters ?? DBNull.Value);
         command2.ExecuteNonQuery();
     }
 

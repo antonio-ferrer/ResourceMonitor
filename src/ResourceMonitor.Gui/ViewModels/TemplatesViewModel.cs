@@ -226,7 +226,7 @@ public partial class TemplatesViewModel : ObservableObject
             return;
         }
 
-        var id = PermanentDatabase.InsertTemplate(_getDatabasePath(), NewTemplateName.Trim(), command, defaultParameters: null);
+        var id = PermanentDatabase.InsertTemplate(_getDatabasePath(), NewTemplateName.Trim(), command);
 
         IsCreatingNew = false;
         NewTemplateError = string.Empty;
@@ -240,9 +240,9 @@ public partial class TemplatesViewModel : ObservableObject
     partial void OnNewTemplateNameChanged(string value) => SalvarNovoTemplateCommand.NotifyCanExecuteChanged();
 
     // Salva o SQL editado de volta no template já selecionado (em vez de criar um novo) —
-    // só pra templates do usuário, mesma restrição de ExcluirTemplate. Nome/DefaultParameters
-    // ficam como estavam; só o Command muda. Mesma exigência de SalvarNovoTemplateAsync: só
-    // salva se a consulta rodar de verdade (ExecutarComando), não só "parece um SELECT".
+    // só pra templates do usuário, mesma restrição de ExcluirTemplate. Nome fica como estava;
+    // só o Command muda. Mesma exigência de SalvarNovoTemplateAsync: só salva se a consulta
+    // rodar de verdade (ExecutarComando), não só "parece um SELECT".
     [RelayCommand(CanExecute = nameof(PodeSalvarAlteracoes))]
     private async Task SalvarAlteracoesAsync()
     {
@@ -259,7 +259,7 @@ public partial class TemplatesViewModel : ObservableObject
             return;
         }
 
-        PermanentDatabase.UpdateTemplate(_getDatabasePath(), selected.Id, selected.Name, command, selected.DefaultParameters);
+        PermanentDatabase.UpdateTemplate(_getDatabasePath(), selected.Id, selected.Name, command);
 
         Refresh();
         SelectedTemplate = Templates.FirstOrDefault(t => t.Id == selected.Id);

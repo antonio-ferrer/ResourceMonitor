@@ -5,7 +5,7 @@ using ResourceMonitor.Diagnostics;
 
 namespace ResourceMonitor.Storage;
 
-public sealed record TemplateRow(long Id, string Name, string Command, string? DefaultParameters, bool IsBuiltIn);
+public sealed record TemplateRow(long Id, string Name, string Command, bool IsBuiltIn);
 
 // Consultas de leitura pra tela de Templates (ex-aba Dados) — mesmo padrão de
 // AlertEventQueries: abre uma conexão curta por chamada, pensado pra uso interativo.
@@ -31,7 +31,7 @@ public sealed class TemplateQueries
         connection.Open();
 
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT Id, Name, Command, DefaultParameters, IsBuiltIn FROM Templates ORDER BY IsBuiltIn DESC, Name;";
+        command.CommandText = "SELECT Id, Name, Command, IsBuiltIn FROM Templates ORDER BY IsBuiltIn DESC, Name;";
 
         var results = new List<TemplateRow>();
         using var reader = command.ExecuteReader();
@@ -41,8 +41,7 @@ public sealed class TemplateQueries
                 reader.GetInt64(0),
                 reader.GetString(1),
                 reader.GetString(2),
-                reader.IsDBNull(3) ? null : reader.GetString(3),
-                reader.GetInt64(4) != 0));
+                reader.GetInt64(3) != 0));
         }
 
         return results;
