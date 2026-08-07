@@ -182,6 +182,9 @@
   }
 
   .empty-state { color: var(--muted); font-size: 13px; padding: 8px 0; }
+  /* Projeção de disco tem só 2 stats — mesma célula do stat-grid de Resumo (4 colunas)
+     ficaria com metade vazia, então usa uma grade própria mais estreita. */
+  .stat-grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 260px)); gap: 12px; }
 
   @media print {
     body { padding: 0; max-width: none; }
@@ -240,8 +243,14 @@
     <span><span class="dot cpu"></span>CPU</span>
     <span><span class="dot ram"></span>RAM</span>
     <span><span class="dot io"></span>Disco I/O</span>
-    <span><span class="dot disk"></span>Disco (uso)</span>
+    <span><span class="dot disk"></span><span id="legendDiskLabel">Disco do Sistema</span></span>
   </div>
+</section>
+
+<section id="secaoProjecaoDisco">
+  <h2 id="projecaoDiscoHeader">Projeção de espaço em disco</h2>
+  <div id="projecaoDiscoStats" class="stat-grid-2"></div>
+  <div id="projecaoDiscoMessage" class="empty-state"></div>
 </section>
 
 <section id="secaoEventos">
@@ -406,10 +415,45 @@ function renderReport(data) {
     document.getElementById('secaoTendencia').style.display = 'none';
   } else {
     document.getElementById('secaoTendencia').style.display = '';
-    document.getElementById('tendenciaHeader').textContent =
-      'Tendência diária (disco em uso: unidade do sistema, ' + data.dailyTrendSystemDrive + ')';
+    document.getElementById('legendDiskLabel').textContent =
+      'Disco do Sistema (' + data.dailyTrendSystemDrive + ')';
     lastTrendData = data.dailyTrend;
     drawTrendChart(lastTrendData);
+  }
+
+  // Projeção de espaço em disco
+  const secaoProjecaoDisco = document.getElementById('secaoProjecaoDisco');
+  if (data.dailyTrend.length === 0) {
+    secaoProjecaoDisco.style.display = 'none';
+  } else {
+    secaoProjecaoDisco.style.display = '';
+    const statsDiv = document.getElementById('projecaoDiscoStats');
+    const messageDiv = document.getElementById('projecaoDiscoMessage');
+    statsDiv.innerHTML = '';
+    messageDiv.textContent = '';
+    const proj = data.diskProjection;
+    if (proj.available) {
+      document.getElementById('projecaoDiscoHeader').textContent =
+        'Projeção de espaço em disco (unidade do sistema, ' + proj.driveLabel + ')';
+      statsDiv.style.display = '';
+      messageDiv.style.display = 'none';
+      const stats = [
+        ['Ritmo de queda', proj.dropRateLabel, 'tendência do período selecionado'],
+        ['Estimativa de esgotamento', proj.daysLabel, 'por volta de ' + proj.estimatedDateLabel],
+      ];
+      stats.forEach(([label, value, sub]) => {
+        const s = el('div', 'stat');
+        s.appendChild(el('div', 'label', label));
+        s.appendChild(el('div', 'value', value));
+        s.appendChild(el('div', 'sub', sub));
+        statsDiv.appendChild(s);
+      });
+    } else {
+      document.getElementById('projecaoDiscoHeader').textContent = 'Projeção de espaço em disco';
+      statsDiv.style.display = 'none';
+      messageDiv.style.display = '';
+      messageDiv.textContent = proj.message;
+    }
   }
 
   // Eventos

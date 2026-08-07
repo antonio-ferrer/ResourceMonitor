@@ -57,7 +57,8 @@ public partial class ReportViewModel : ObservableObject
             databasePath, DateOnly.FromDateTime(effectiveFrom), DateOnly.FromDateTime(effectiveTo));
 
         var hardware = HardwareInfoReader.Capture();
-        var payload = BuildPayload(events, hardware, effectiveFrom, effectiveTo, dailyTrend);
+        var diskProjection = BuildDiskProjection(dailyTrend, hardware);
+        var payload = BuildPayload(events, hardware, effectiveFrom, effectiveTo, dailyTrend, diskProjection);
         var json = JsonSerializer.Serialize(payload);
 
         StatusText = $"Relatório gerado: {events.Count} evento(s) no período.";
@@ -66,7 +67,7 @@ public partial class ReportViewModel : ObservableObject
 
     private object BuildPayload(
         List<AlertEpisodeRow> events, HardwareInfo hardware, DateTime effectiveFrom, DateTime effectiveTo,
-        List<DailyAggregateRow> dailyTrend)
+        List<DailyAggregateRow> dailyTrend, object diskProjection)
     {
         var withDuration = events.Where(e => e.DurationMinutes.HasValue).ToList();
         var ongoingCount = events.Count - withDuration.Count;
@@ -147,6 +148,7 @@ public partial class ReportViewModel : ObservableObject
                 avgIo = Math.Round(d.AvgIoPercent, 1),
                 avgDiskUsage = Math.Round(100 - d.AvgDiskFreePercent, 1),
             }),
+            diskProjection,
             events = events.Select(e => new
             {
                 timestamp = e.Timestamp.ToLocalTime().ToString("dd/MM HH:mm:ss", PtBr),
@@ -158,6 +160,72 @@ public partial class ReportViewModel : ObservableObject
                 adjustedLabel = e.AdjustedValue is { } adjusted ? $"{adjusted.ToString("N1", PtBr)}%" : "—",
                 thresholdLabel = $"{e.Threshold.ToString("N1", PtBr)}%",
             }),
+        };
+    }
+
+    // Regressão linear simples (mínimos quadrados) de AvgDiskFreePercent contra o dia dentro
+    // do período — só a unidade do sistema, já que DailyAggregates não guarda histórico por
+    // disco (ver MonitoringService). "available=false" cobre tanto dado insuficiente quanto
+    // tendência estável/de recuperação, pra não mostrar um número de projeção sem sentido.
+    private static object BuildDiskProjection(List<DailyAggregateRow> dailyTrend, HardwareInfo hardware)
+    {
+        const int minPoints = 3;
+        const double flatSlopeTolerance = -0.01; // %/dia — abaixo disso é ruído, não tendência
+        const int maxProjectedDays = 3650; // ~10 anos — além disso não tem valor prático
+
+        if (dailyTrend.Count < minPoints)
+        {
+            return new { available = false, message = $"Dados insuficientes no período selecionado (mínimo de {minPoints} dias com amostras) para estimar tendência." };
+        }
+
+        var firstDate = dailyTrend[0].Date;
+        var xs = dailyTrend.Select(d => (double)d.Date.DayNumber - firstDate.DayNumber).ToArray();
+        var ys = dailyTrend.Select(d => d.AvgDiskFreePercent).ToArray();
+
+        var xMean = xs.Average();
+        var yMean = ys.Average();
+        var covariance = xs.Zip(ys, (x, y) => (x - xMean) * (y - yMean)).Sum();
+        var variance = xs.Sum(x => (x - xMean) * (x - xMean));
+
+        if (variance == 0)
+        {
+            return new { available = false, message = "Dados insuficientes no período selecionado (todas as amostras no mesmo dia) para estimar tendência." };
+        }
+
+        var slope = covariance / variance;
+
+        if (slope >= flatSlopeTolerance)
+        {
+            return new { available = false, message = "Espaço livre estável ou aumentando no período selecionado — sem projeção de esgotamento no ritmo atual." };
+        }
+
+        var intercept = yMean - slope * xMean;
+        var lastX = xs[^1];
+        var freeAtLastDay = intercept + slope * lastX;
+        var daysToZero = -freeAtLastDay / slope;
+
+        var driveLabel = dailyTrend[^1].SystemDrive;
+
+        if (daysToZero > maxProjectedDays)
+        {
+            return new { available = false, message = $"Queda de espaço livre muito lenta no período selecionado (mais de {maxProjectedDays / 365} anos no ritmo atual) — sem projeção prática." };
+        }
+
+        var wholeDays = Math.Max(0, (int)Math.Round(daysToZero));
+        var estimatedDate = dailyTrend[^1].Date.ToDateTime(TimeOnly.MinValue).AddDays(wholeDays);
+
+        var driveTotalGb = hardware.Disks.FirstOrDefault(d => string.Equals(d.DriveName, driveLabel, StringComparison.OrdinalIgnoreCase))?.TotalGb;
+        var dropRateGbPerDayLabel = driveTotalGb is { } totalGb
+            ? $" (~{(-slope / 100 * totalGb).ToString("N1", PtBr)} GB/dia)"
+            : string.Empty;
+
+        return new
+        {
+            available = true,
+            driveLabel,
+            dropRateLabel = $"{(-slope).ToString("N2", PtBr)} %/dia{dropRateGbPerDayLabel}",
+            daysLabel = $"{wholeDays} dia{(wholeDays == 1 ? "" : "s")}",
+            estimatedDateLabel = estimatedDate.ToString("dd/MM/yyyy", PtBr),
         };
     }
 
