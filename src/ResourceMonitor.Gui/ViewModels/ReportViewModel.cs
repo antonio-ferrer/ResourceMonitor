@@ -22,6 +22,7 @@ public partial class ReportViewModel : ObservableObject
     [ObservableProperty] private bool includeCpu = true;
     [ObservableProperty] private bool includeRam = true;
     [ObservableProperty] private bool includeDiscoIo = true;
+    [ObservableProperty] private bool includeOffenders = true;
     [ObservableProperty] private bool includeHourlyPattern = true;
     [ObservableProperty] private bool includeDiskProjection = true;
     [ObservableProperty] private bool includeAllEvents = true;
@@ -42,6 +43,7 @@ public partial class ReportViewModel : ObservableObject
     partial void OnIncludeCpuChanged(bool value) => GerarRelatorio();
     partial void OnIncludeRamChanged(bool value) => GerarRelatorio();
     partial void OnIncludeDiscoIoChanged(bool value) => GerarRelatorio();
+    partial void OnIncludeOffendersChanged(bool value) => GerarRelatorio();
     partial void OnIncludeHourlyPatternChanged(bool value) => GerarRelatorio();
     partial void OnIncludeDiskProjectionChanged(bool value) => GerarRelatorio();
     partial void OnIncludeAllEventsChanged(bool value) => GerarRelatorio();
@@ -61,6 +63,11 @@ public partial class ReportViewModel : ObservableObject
         if (IncludeRam) selectedMetrics.Add("RAM");
         if (IncludeDiscoIo) selectedMetrics.Add("DiscoIO");
 
+        var selectedKinds = new HashSet<string>();
+        if (IncludeCpu) selectedKinds.Add("Cpu");
+        if (IncludeRam) selectedKinds.Add("Ram");
+        if (IncludeDiscoIo) selectedKinds.Add("Io");
+
         var events = _alertEventQueries.GetAlertEpisodes(databasePath, from, to)
             .Where(e => selectedMetrics.Contains(e.Metric))
             .OrderBy(e => e.Timestamp)
@@ -69,10 +76,16 @@ public partial class ReportViewModel : ObservableObject
         var dailyTrend = _alertEventQueries.GetDailyAggregates(
             databasePath, DateOnly.FromDateTime(effectiveFrom), DateOnly.FromDateTime(effectiveTo));
 
+        // topN maior que o exibido: cada linha aqui é (processo, métrica), então um processo
+        // que ofende em CPU+RAM+IO consome 3 — dá margem pra ainda sobrar 10 processos
+        // distintos depois de agregar por processo em BuildOffendersSection.
+        var offenders = _alertEventQueries.GetTopOffenders(databasePath, from, to, selectedKinds, topN: 30);
+
         var hardware = HardwareInfoReader.Capture();
         var diskProjection = BuildDiskProjection(dailyTrend, hardware);
         var hourlyPattern = BuildHourlyPattern(events);
-        var payload = BuildPayload(events, hardware, effectiveFrom, effectiveTo, dailyTrend, diskProjection, hourlyPattern);
+        var offendersSection = BuildOffendersSection(offenders);
+        var payload = BuildPayload(events, hardware, effectiveFrom, effectiveTo, dailyTrend, diskProjection, hourlyPattern, offendersSection);
         var json = JsonSerializer.Serialize(payload);
 
         StatusText = $"Relatório gerado: {events.Count} evento(s) no período.";
@@ -81,7 +94,7 @@ public partial class ReportViewModel : ObservableObject
 
     private object BuildPayload(
         List<AlertEpisodeRow> events, HardwareInfo hardware, DateTime effectiveFrom, DateTime effectiveTo,
-        List<DailyAggregateRow> dailyTrend, object diskProjection, object hourlyPattern)
+        List<DailyAggregateRow> dailyTrend, object diskProjection, object hourlyPattern, object offendersSection)
     {
         var withDuration = events.Where(e => e.DurationMinutes.HasValue).ToList();
         var ongoingCount = events.Count - withDuration.Count;
@@ -100,6 +113,7 @@ public partial class ReportViewModel : ObservableObject
             periodTo = effectiveTo.ToString("dd/MM/yyyy", PtBr),
             generatedAt = DateTime.Now.ToString("dd/MM/yyyy HH:mm", PtBr),
             includeEvents = IncludeAllEvents,
+            includeOffenders = IncludeOffenders,
             includeHourlyPattern = IncludeHourlyPattern,
             includeDiskProjection = IncludeDiskProjection,
             hardware = new
@@ -151,6 +165,7 @@ public partial class ReportViewModel : ObservableObject
                             : $"{(sum / groupWithDuration.Count).ToString("N1", PtBr)} min",
                     };
                 }),
+            offenders = offendersSection,
             hourlyPattern,
             dailyTrendSystemDrive = dailyTrend.Count > 0 ? dailyTrend[0].SystemDrive : "—",
             // Valores numéricos (não texto formatado) — o gráfico de canvas precisa plotar
@@ -302,6 +317,87 @@ public partial class ReportViewModel : ObservableObject
             topSlotLabel,
         };
     }
+
+    // "1 ofensor = processo" — soma as ocorrências das métricas que ele afetou (CPU+RAM+IO
+    // juntos), já que a visão principal do gráfico é "quem" ofende mais, não "qual métrica".
+    // Valor médio/máximo continuam por métrica na tabela de apoio (não dá pra somar % com MB
+    // com KB/s), por isso detailRows mantém uma linha por (processo, métrica).
+    private static object BuildOffendersSection(List<TopOffenderRow> offenders)
+    {
+        if (offenders.Count == 0)
+        {
+            return new { available = false };
+        }
+
+        var byProcess = offenders
+            .GroupBy(o => o.ProcessName)
+            .Select(g => new
+            {
+                ProcessName = g.Key,
+                TotalOccurrences = g.Sum(o => o.OccurrenceCount),
+                Kinds = g.Select(o => o.Kind).Distinct().ToList(),
+            })
+            .OrderByDescending(p => p.TotalOccurrences)
+            .Take(10)
+            .ToList();
+
+        var processRank = byProcess
+            .Select((p, i) => (p.ProcessName, Rank: i))
+            .ToDictionary(x => x.ProcessName, x => x.Rank);
+
+        var detailRows = offenders
+            .Where(o => processRank.ContainsKey(o.ProcessName))
+            .OrderBy(o => processRank[o.ProcessName])
+            .ThenByDescending(o => o.OccurrenceCount)
+            .Select(o => new
+            {
+                processName = o.ProcessName,
+                kindLabel = FormatKindLabel(o.Kind),
+                dotClass = KindDotClass(o.Kind),
+                occurrenceCount = o.OccurrenceCount,
+                avgValueLabel = FormatKindValue(o.Kind, o.AvgValue),
+                maxValueLabel = FormatKindValue(o.Kind, o.MaxValue),
+                lastSeenLabel = o.LastSeenUtc.ToLocalTime().ToString("dd/MM HH:mm", PtBr),
+            });
+
+        var chartRows = byProcess.Select(p => new
+        {
+            processName = p.ProcessName,
+            totalOccurrences = p.TotalOccurrences,
+            kindDots = p.Kinds.Select(KindDotClass),
+        });
+
+        return new
+        {
+            available = true,
+            chartRows,
+            detailRows,
+        };
+    }
+
+    private static string FormatKindLabel(string kind) => kind switch
+    {
+        "Cpu" => "CPU",
+        "Ram" => "RAM",
+        "Io" => "Disco (I/O)",
+        _ => kind,
+    };
+
+    private static string KindDotClass(string kind) => kind switch
+    {
+        "Cpu" => "cpu",
+        "Ram" => "ram",
+        "Io" => "io",
+        _ => "",
+    };
+
+    private static string FormatKindValue(string kind, double value) => kind switch
+    {
+        "Cpu" => $"{value.ToString("N1", PtBr)}%",
+        "Ram" => $"{value.ToString("N0", PtBr)} MB",
+        "Io" => $"{value.ToString("N1", PtBr)} KB/s",
+        _ => value.ToString("N1", PtBr),
+    };
 
     private static string FormatDuration(AlertEpisodeRow episode)
     {

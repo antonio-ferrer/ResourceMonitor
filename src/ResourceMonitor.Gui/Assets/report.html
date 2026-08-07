@@ -144,6 +144,17 @@
 
   .chart-frame { border: 1px solid var(--line); border-radius: var(--radius); padding: 8px; }
   #trendChart { display: block; width: 100%; height: 220px; }
+
+  /* Ofensores: uma cor por processo (não por métrica) — legenda ao lado do gráfico em vez
+     de embaixo, já que cada cor mapeia um item específico da lista, não uma categoria fixa. */
+  .offenders-layout { display: flex; gap: 14px; align-items: stretch; }
+  .offenders-chart-frame { flex: 1; min-width: 0; }
+  #offendersChart { display: block; width: 100%; height: 200px; }
+  .offenders-legend { flex: 0 0 190px; display: flex; flex-direction: column; justify-content: center; gap: 7px; font-size: 12px; color: var(--muted); }
+  .offenders-legend .item { display: flex; align-items: center; gap: 7px; }
+  .offenders-legend .swatch { width: 10px; height: 10px; border-radius: 2px; flex: none; }
+  .offenders-legend .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .offenders-legend .kind-dots { display: flex; gap: 3px; flex: none; }
   .legend { display: flex; gap: 20px; flex-wrap: wrap; margin-top: 10px; font-size: 12px; color: var(--muted); }
   .legend span { display: inline-flex; align-items: center; gap: 6px; }
 
@@ -245,6 +256,22 @@
   </table>
 </section>
 
+<section id="secaoOfensores">
+  <h2>Ofensores</h2>
+  <div class="offenders-layout">
+    <div class="chart-frame offenders-chart-frame">
+      <canvas id="offendersChart"></canvas>
+    </div>
+    <div class="offenders-legend" id="offendersLegend"></div>
+  </div>
+  <table class="metric-table" style="margin-top: 14px;">
+    <thead>
+      <tr><th>Processo</th><th>Métrica</th><th>Ocorrências</th><th>Valor médio</th><th>Valor máximo</th><th>Última vez</th></tr>
+    </thead>
+    <tbody id="offendersTableBody"></tbody>
+  </table>
+</section>
+
 <section id="secaoPadraoHorario">
   <h2>Padrão de horário dos alertas</h2>
   <div class="table-wrap">
@@ -300,6 +327,82 @@
 <script>
 let lastTrendData = null;
 window.addEventListener('resize', () => { if (lastTrendData) drawTrendChart(lastTrendData); });
+
+// Uma cor por ofensor (processo), mesma paleta usada na legenda ao lado — indexada pela
+// posição na lista (chartRows e a legenda vêm da mesma ordem).
+const offenderPalette = ['#1d4ed8', '#c2410c', '#15803d', '#9333ea', '#be185d', '#0891b2', '#a16207', '#4f46e5', '#65a30d', '#78716c'];
+
+// getBoundingClientRect() logo depois de secaoOfensores sair de display:none pode voltar
+// 0x0 — o layout do WebView2 ainda não assentou nesse frame (requestAnimationFrame sozinho
+// não era suficiente). ResizeObserver resolve de vez: dispara de novo assim que o canvas
+// realmente ganha um tamanho, sem precisar adivinhar quando isso acontece.
+let lastOffendersChartRows = null;
+const offendersCanvasEl = document.getElementById('offendersChart');
+if (window.ResizeObserver) {
+  new ResizeObserver(() => {
+    if (lastOffendersChartRows) drawOffendersChart(lastOffendersChartRows);
+  }).observe(offendersCanvasEl);
+}
+
+// Barras verticais, uma por processo (já agregado por processo em BuildOffendersSection,
+// ordenado por totalOccurrences DESC).
+function drawOffendersChart(rows) {
+  const canvas = document.getElementById('offendersChart');
+  const rect = canvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const w = rect.width, h = rect.height;
+  ctx.clearRect(0, 0, w, h);
+
+  if (!rows || rows.length === 0 || w === 0 || h === 0) {
+    return;
+  }
+
+  const paddingLeft = 36, paddingRight = 12, paddingTop = 12, paddingBottom = 30;
+  const plotW = w - paddingLeft - paddingRight;
+  const plotH = h - paddingTop - paddingBottom;
+  const n = rows.length;
+  const maxCount = Math.max(...rows.map(r => r.totalOccurrences));
+
+  ctx.strokeStyle = '#e2e5ea';
+  ctx.fillStyle = '#7c8494';
+  ctx.font = '10.5px Segoe UI';
+  ctx.lineWidth = 1;
+  const gridStep = Math.max(1, Math.ceil(maxCount / 5));
+  for (let v = 0; v <= maxCount; v += gridStep) {
+    const y = paddingTop + plotH - (v / maxCount) * plotH;
+    ctx.beginPath();
+    ctx.moveTo(paddingLeft, y);
+    ctx.lineTo(paddingLeft + plotW, y);
+    ctx.stroke();
+    ctx.fillText(String(v), 6, y + 3);
+  }
+
+  const slotW = plotW / n;
+  const barW = Math.min(36, slotW * 0.6);
+  rows.forEach((row, i) => {
+    const slotX = paddingLeft + i * slotW;
+    const barH = (row.totalOccurrences / maxCount) * plotH;
+    const x = slotX + (slotW - barW) / 2;
+    const y = paddingTop + plotH - barH;
+    ctx.fillStyle = offenderPalette[i % offenderPalette.length];
+    ctx.fillRect(x, y, barW, barH);
+
+    ctx.fillStyle = '#7c8494';
+    ctx.font = '10px Segoe UI';
+    const label = row.processName.length > 12 ? row.processName.slice(0, 11) + '…' : row.processName;
+    const labelWidth = ctx.measureText(label).width;
+    ctx.fillText(label, slotX + (slotW - labelWidth) / 2, h - 16);
+    ctx.font = 'bold 10.5px Segoe UI';
+    ctx.fillStyle = '#14171d';
+    const countLabel = String(row.totalOccurrences);
+    const countWidth = ctx.measureText(countLabel).width;
+    ctx.fillText(countLabel, slotX + (slotW - countWidth) / 2, y - 4);
+  });
+}
 
 function drawTrendChart(data) {
   const canvas = document.getElementById('trendChart');
@@ -426,6 +529,49 @@ function renderReport(data) {
       tr.appendChild(el('td', null, m.totalLabel));
       tr.appendChild(el('td', null, m.avgLabel));
       metricBody.appendChild(tr);
+    });
+  }
+
+  // Ofensores
+  const secaoOfensores = document.getElementById('secaoOfensores');
+  const offenders = data.offenders;
+  if (!data.includeOffenders || !offenders.available) {
+    secaoOfensores.style.display = 'none';
+  } else {
+    secaoOfensores.style.display = '';
+    lastOffendersChartRows = offenders.chartRows;
+    drawOffendersChart(lastOffendersChartRows);
+
+    // Legenda: cor do ofensor + nome + pontinhos estáticos indicando quais métricas ele
+    // ofendeu (mesmas classes dot cpu/ram/io já usadas no resto do relatório).
+    const legend = document.getElementById('offendersLegend');
+    legend.innerHTML = '';
+    offenders.chartRows.forEach((row, i) => {
+      const item = el('div', 'item');
+      const swatch = el('span', 'swatch');
+      swatch.style.backgroundColor = offenderPalette[i % offenderPalette.length];
+      item.appendChild(swatch);
+      item.appendChild(el('span', 'label', row.processName));
+      const kindDots = el('span', 'kind-dots');
+      row.kindDots.forEach(kindClass => kindDots.appendChild(dot(kindClass)));
+      item.appendChild(kindDots);
+      legend.appendChild(item);
+    });
+
+    const offendersBody = document.getElementById('offendersTableBody');
+    offendersBody.innerHTML = '';
+    offenders.detailRows.forEach(o => {
+      const tr = document.createElement('tr');
+      tr.appendChild(el('td', null, o.processName));
+      const kindTd = el('td', 'metric-name');
+      kindTd.appendChild(dot(o.dotClass));
+      kindTd.appendChild(document.createTextNode(o.kindLabel));
+      tr.appendChild(kindTd);
+      tr.appendChild(el('td', null, String(o.occurrenceCount)));
+      tr.appendChild(el('td', null, o.avgValueLabel));
+      tr.appendChild(el('td', null, o.maxValueLabel));
+      tr.appendChild(el('td', null, o.lastSeenLabel));
+      offendersBody.appendChild(tr);
     });
   }
 

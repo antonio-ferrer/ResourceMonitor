@@ -533,6 +533,7 @@
                         <CheckBox Content="CPU" IsChecked="{Binding IncludeCpu}" VerticalAlignment="Center" Margin="0,0,16,6" />
                         <CheckBox Content="RAM" IsChecked="{Binding IncludeRam}" VerticalAlignment="Center" Margin="0,0,16,6" />
                         <CheckBox Content="Disco I/O" IsChecked="{Binding IncludeDiscoIo}" VerticalAlignment="Center" Margin="0,0,22,6" />
+                        <CheckBox Content="Ofensores" IsChecked="{Binding IncludeOffenders}" VerticalAlignment="Center" Margin="0,0,16,6" />
                         <CheckBox Content="Padrão de horário" IsChecked="{Binding IncludeHourlyPattern}" VerticalAlignment="Center" Margin="0,0,16,6" />
                         <CheckBox Content="Projeção de disco" IsChecked="{Binding IncludeDiskProjection}" VerticalAlignment="Center" Margin="0,0,22,6" />
                         <CheckBox Content="Incluir todos os eventos" IsChecked="{Binding IncludeAllEvents}" VerticalAlignment="Center" Margin="0,0,0,6"

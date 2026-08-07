@@ -29,6 +29,17 @@ public sealed record ProcessSnapshotRow(
     double RamMb,
     double IoKbPerSec);
 
+// Kind é o tipo de consumo capturado na snapshot ("Cpu"/"Ram"/"Io") — diferente de Metric em
+// AlertEvents ("CPU"/"RAM"/"DiscoIO", o que disparou o alerta), já que todo Start grava as
+// 3 snapshots independente de qual métrica disparou (ver MonitoringService).
+public sealed record TopOffenderRow(
+    string ProcessName,
+    string Kind,
+    int OccurrenceCount,
+    double AvgValue,
+    double MaxValue,
+    DateTimeOffset LastSeenUtc);
+
 // Médias já calculadas (Sum/SampleCount) — pensado pra tendência de uso ao longo de dias,
 // não pra alerta. AvgDiskFreePercent é só do disco do sistema (ver MonitoringService).
 public sealed record DailyAggregateRow(
@@ -313,6 +324,64 @@ public sealed class AlertEventQueries
                 reader.GetDouble(4) / sampleCount,
                 reader.GetDouble(5) / sampleCount,
                 reader.GetString(6)));
+        }
+
+        return results;
+    }
+
+    // Reaproveita a mesma query do template SQL "Ofensores" (ver PermanentDatabase.BuiltInTemplates),
+    // agora como consulta tipada pro Relatório — kinds vazio (todos os checkboxes de métrica
+    // desmarcados) retorna lista vazia sem tocar no banco.
+    public List<TopOffenderRow> GetTopOffenders(
+        string databasePath, DateTimeOffset from, DateTimeOffset to, IReadOnlyCollection<string> kinds, int topN = 10)
+    {
+        if (kinds.Count == 0 || !File.Exists(databasePath))
+        {
+            return new List<TopOffenderRow>();
+        }
+
+        PermanentDatabase.EnsureSchema(databasePath);
+
+        using var connection = new SqliteConnection($"Data Source={databasePath};Mode=ReadOnly");
+        connection.Open();
+
+        var kindParams = kinds.Select((_, i) => $"$kind{i}").ToList();
+        using var command = connection.CreateCommand();
+        command.CommandText = $"""
+            SELECT s.ProcessName, s.Kind,
+                   COUNT(DISTINCT s.AlertEventId) AS OccurrenceCount,
+                   AVG(CASE s.Kind WHEN 'Cpu' THEN s.CpuPercent WHEN 'Ram' THEN s.RamMb ELSE s.IoKbPerSec END) AS AvgValue,
+                   MAX(CASE s.Kind WHEN 'Cpu' THEN s.CpuPercent WHEN 'Ram' THEN s.RamMb ELSE s.IoKbPerSec END) AS MaxValue,
+                   MAX(e.TimestampUtc) AS LastSeenUtc
+            FROM AlertProcessSnapshots s
+            JOIN AlertEvents e ON e.Id = s.AlertEventId
+            WHERE e.EventType = 'Start' AND e.TimestampUtc >= $from AND e.TimestampUtc <= $to
+              AND s.Kind IN ({string.Join(",", kindParams)})
+            GROUP BY s.ProcessName, s.Kind
+            ORDER BY OccurrenceCount DESC, AvgValue DESC
+            LIMIT $topN;
+            """;
+        command.Parameters.AddWithValue("$from", FormatTimestamp(from));
+        command.Parameters.AddWithValue("$to", FormatTimestamp(to));
+        command.Parameters.AddWithValue("$topN", topN);
+        var kindIndex = 0;
+        foreach (var kind in kinds)
+        {
+            command.Parameters.AddWithValue($"$kind{kindIndex}", kind);
+            kindIndex++;
+        }
+
+        var results = new List<TopOffenderRow>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            results.Add(new TopOffenderRow(
+                reader.GetString(0),
+                reader.GetString(1),
+                reader.GetInt32(2),
+                reader.GetDouble(3),
+                reader.GetDouble(4),
+                ParseTimestamp(reader.GetString(5))));
         }
 
         return results;
