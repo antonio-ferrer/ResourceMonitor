@@ -98,6 +98,15 @@
 
             <ScrollViewer x:Name="HomeTabRoot" Margin="16" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
                 <StackPanel>
+                    <Border Visibility="{Binding UpdateAvailable, Converter={StaticResource BoolToVis}}"
+                            BorderBrush="#F0B429" BorderThickness="1" CornerRadius="3" Background="#FFFBEB"
+                            Padding="12,10" Margin="0,0,0,16">
+                        <TextBlock TextWrapping="Wrap">
+                            <Run Text="{Binding UpdateAvailableMessage, Mode=OneWay}" />
+                            <Hyperlink NavigateUri="{Binding UpdateReleaseUrl, Mode=OneWay}" RequestNavigate="OnCreditHyperlinkRequestNavigate">Ver no GitHub</Hyperlink>
+                        </TextBlock>
+                    </Border>
+
                     <TextBlock Text="Visão geral" FontSize="20" FontWeight="Bold" Margin="0,0,0,4" />
                     <TextBlock Text="{Binding Hardware.MachineName}" Foreground="Gray" FontSize="12" Margin="0,0,0,16" />
 

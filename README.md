@@ -10,11 +10,12 @@ App para Windows que monitora o uso de CPU, RAM e disco, e registra automaticame
 - **Captura de janela de pico**: quando um alerta dispara, o app guarda automaticamente as amostras de alguns segundos antes e depois do pico, mais o snapshot dos processos que mais consumiam CPU, RAM e I/O de disco naquele momento — sem precisar gravar o histórico completo o tempo todo.
 - **Tendência diária**: a cada ~5 minutos, registra a média do dia (CPU, RAM, I/O, uso de disco) — pra responder "o uso normal está subindo com o tempo?", um sinal útil pra decidir sobre upgrade de hardware.
 - **Interface gráfica** com ícone na bandeja do Windows:
-  - Aba **Monitoramento**: editar os parâmetros, processos excluídos, limites por disco, iniciar/parar, restaurar valores padrão, e opção de iniciar automaticamente com o Windows (minimizado na bandeja, já monitorando).
-  - Aba **Dados**: grid com a tendência diária e outro com a base de picos, exportação de cada um pra CSV, e um painel de limpeza seletiva (cache, tendência, base de picos — cada categoria com confirmação própria).
-  - Aba **Gráficos**: gráfico ao vivo, gráfico da janela capturada em torno de um alerta selecionado, e gráfico de tendência diária dos últimos 30 dias — via WebView2 (Edge embutido).
-  - Aba **Relatórios**: resumo imprimível por período (filtro de métricas e datas), com ficha de hardware (S.O., processador, RAM, discos) e tendência diária — pensado pra imprimir ou exportar como PDF e apoiar decisão de compra de hardware.
-  - Aba **Ajuda**: guia explicando o ciclo de amostragem, alertas e onde cada dado fica.
+  - **Home**: visão geral — resumo do computador, status do monitoramento, gráfico ao vivo e top processos por CPU/RAM/Disco I/O.
+  - **Configurações**: limites de alerta, processos excluídos, limites por disco, iniciar com o Windows, iniciar/parar monitoramento, e limpeza seletiva de dados (cache, tendência, base de picos).
+  - **Templates**: consultas SQL somente-leitura salvas — 3 prontas (Tendência diária, Ofensores, Base de picos) e outras que você criar, com filtro de período, exportação CSV e proteção contra escrita (mesmo um comando disfarçado é rejeitado).
+  - **Gráficos**: dados correntes ao vivo, tendência diária, e eventos de picos (tendência com marcadores clicáveis nos dias com alerta) — via WebView2 (Edge embutido).
+  - **Relatórios**: documento imprimível ou exportável em PDF por período, com resumo, quebra por métrica, ofensores, padrão de horário dos alertas, tendência diária, projeção de espaço em disco e lista completa de eventos — cada seção é opcional (checkbox própria) e o relatório se atualiza sozinho ao mudar o filtro.
+  - **Ajuda**: manual embutido explicando o ciclo de amostragem, alertas, templates e relatórios.
 - **App de console** equivalente, pra rodar sem interface gráfica (ex: como tarefa agendada) — compartilha a mesma configuração e banco de dados da GUI.
 
 ## Arquitetura
@@ -64,6 +65,8 @@ dotnet run --project src/ResourceMonitor.Gui
 ## Créditos
 
 Ícone do app: ["Performance" icon by Icons8](https://icons8.com/icon/CEZqMfdFYPeb/performance-2).
+
+Este projeto foi construído com o [Claude](https://claude.com), da Anthropic, através do [Claude Code](https://claude.com/claude-code). O desenvolvimento foi conduzido predominantemente com o **Claude Sonnet 5**, utilizado como principal modelo de IA para implementação, revisão de código e apoio às decisões técnicas. O processo foi leve, produtivo e demonstra o potencial da IA como parceira no desenvolvimento de aplicações.
 
 ## Licença
 

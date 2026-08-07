@@ -6,6 +6,7 @@ using ResourceMonitor.Gui;
 using ResourceMonitor.Gui.Converters;
 using ResourceMonitor.Monitoring;
 using ResourceMonitor.Sampling;
+using ResourceMonitor.Updates;
 
 namespace ResourceMonitor.Gui.ViewModels;
 
@@ -22,6 +23,10 @@ public partial class HomeViewModel : ObservableObject
     [ObservableProperty] private bool customDiskThresholdsActive;
     [ObservableProperty] private string thresholdsSummary = string.Empty;
     [ObservableProperty] private string sampleIntervalSummary = string.Empty;
+
+    [ObservableProperty] private bool updateAvailable;
+    [ObservableProperty] private string updateAvailableMessage = string.Empty;
+    [ObservableProperty] private string? updateReleaseUrl;
 
     // Top 5 por métrica, em abas separadas pra não misturar — subproduto do ResourceSampler
     // que já roda pro gráfico, sem nova varredura de processos.
@@ -40,6 +45,26 @@ public partial class HomeViewModel : ObservableObject
         _monitoringService.RunningStateChanged += (_, _) => RefreshConfigSummary();
 
         RefreshConfigSummary();
+
+        // Uma vez por execução — o construtor só roda uma vez, mesmo ciclo de vida da
+        // janela, então não precisa de flag extra pra evitar checagem repetida.
+        _ = CheckForUpdateAsync();
+    }
+
+    private async Task CheckForUpdateAsync()
+    {
+        var result = await UpdateChecker.CheckAsync(AppVersion.Current);
+        if (!result.IsUpdateAvailable)
+        {
+            return;
+        }
+
+        System.Windows.Application.Current.Dispatcher.Invoke(() =>
+        {
+            UpdateAvailableMessage = $"Uma nova versão ({result.LatestVersion}) está disponível — você está usando v{AppVersion.Current}.";
+            UpdateReleaseUrl = result.ReleaseUrl;
+            UpdateAvailable = true;
+        });
     }
 
     [RelayCommand]

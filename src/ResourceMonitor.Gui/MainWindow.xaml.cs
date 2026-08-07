@@ -45,6 +45,7 @@ public partial class MainWindow : Window
 
         var app = (App)Application.Current;
 
+        Title = $"ResourceMonitor - v{AppVersion.Current}";
         if (app.TraceLogger.IsEnabled)
         {
             Title += " - modo depuração";
