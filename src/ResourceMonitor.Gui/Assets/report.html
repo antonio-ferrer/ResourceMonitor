@@ -432,7 +432,7 @@ function renderReport(data) {
   // Padrão de horário dos alertas
   const secaoPadraoHorario = document.getElementById('secaoPadraoHorario');
   const pattern = data.hourlyPattern;
-  if (!pattern.available) {
+  if (!data.includeHourlyPattern || !pattern.available) {
     secaoPadraoHorario.style.display = 'none';
   } else {
     secaoPadraoHorario.style.display = '';
@@ -491,7 +491,7 @@ function renderReport(data) {
 
   // Projeção de espaço em disco
   const secaoProjecaoDisco = document.getElementById('secaoProjecaoDisco');
-  if (data.dailyTrend.length === 0) {
+  if (!data.includeDiskProjection || data.dailyTrend.length === 0) {
     secaoProjecaoDisco.style.display = 'none';
   } else {
     secaoProjecaoDisco.style.display = '';

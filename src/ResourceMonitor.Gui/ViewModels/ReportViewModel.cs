@@ -22,6 +22,8 @@ public partial class ReportViewModel : ObservableObject
     [ObservableProperty] private bool includeCpu = true;
     [ObservableProperty] private bool includeRam = true;
     [ObservableProperty] private bool includeDiscoIo = true;
+    [ObservableProperty] private bool includeHourlyPattern = true;
+    [ObservableProperty] private bool includeDiskProjection = true;
     [ObservableProperty] private bool includeAllEvents = true;
     [ObservableProperty] private string statusText = string.Empty;
 
@@ -32,6 +34,17 @@ public partial class ReportViewModel : ObservableObject
         _getDatabasePath = getDatabasePath;
         _alertEventQueries = alertEventQueries;
     }
+
+    // Qualquer filtro mudando já regenera sozinho — o botão "Gerar relatório" continua
+    // existindo só como atalho pra atualizar com os mesmos filtros (ex: dado novo chegou).
+    partial void OnPeriodFromChanged(DateTime? value) => GerarRelatorio();
+    partial void OnPeriodToChanged(DateTime? value) => GerarRelatorio();
+    partial void OnIncludeCpuChanged(bool value) => GerarRelatorio();
+    partial void OnIncludeRamChanged(bool value) => GerarRelatorio();
+    partial void OnIncludeDiscoIoChanged(bool value) => GerarRelatorio();
+    partial void OnIncludeHourlyPatternChanged(bool value) => GerarRelatorio();
+    partial void OnIncludeDiskProjectionChanged(bool value) => GerarRelatorio();
+    partial void OnIncludeAllEventsChanged(bool value) => GerarRelatorio();
 
     [RelayCommand]
     private void GerarRelatorio()
@@ -87,6 +100,8 @@ public partial class ReportViewModel : ObservableObject
             periodTo = effectiveTo.ToString("dd/MM/yyyy", PtBr),
             generatedAt = DateTime.Now.ToString("dd/MM/yyyy HH:mm", PtBr),
             includeEvents = IncludeAllEvents,
+            includeHourlyPattern = IncludeHourlyPattern,
+            includeDiskProjection = IncludeDiskProjection,
             hardware = new
             {
                 operatingSystem = hardware.OperatingSystem,

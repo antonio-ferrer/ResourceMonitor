@@ -427,7 +427,11 @@ public partial class MainWindow : Window
     // Iniciado só na primeira vez que a seção é aberta (não no Loaded, junto com os outros
     // WebView2) — inicializar vários WebView2 ao mesmo tempo numa seção ainda não visível
     // causava o conteúdo não renderizar até o usuário navegar por outra seção antes.
-    private async void OnMenuRelatoriosGeralClick(object sender, RoutedEventArgs e)
+    // Mesmo padrão de espera real (TaskCompletionSource) de EnsureSqlEditorWebViewInitializedAsync
+    // — aqui é o que permite já disparar "Gerar relatório" com o período padrão (última semana)
+    // assim que abre, em vez de esperar o usuário clicar. Cursor de espera cobre a inicialização
+    // do WebView2 (a parte que pode demorar de verdade em máquinas mais lentas).
+    private async void OnMenuRelatoriosClick(object sender, RoutedEventArgs e)
     {
         ShowSection(ReportTabRoot, MenuRelatorios);
 
@@ -437,20 +441,27 @@ public partial class MainWindow : Window
         }
 
         _reportWebViewInitStarted = true;
-
-        var reportHtmlUri = new Uri(Path.Combine(AppContext.BaseDirectory, "Assets", "report.html")).AbsoluteUri;
-
-        await ReportWebView.EnsureCoreWebView2Async();
-        ReportWebView.CoreWebView2.NavigationCompleted += (_, _) =>
+        Mouse.OverrideCursor = System.Windows.Input.Cursors.Wait;
+        try
         {
-            _reportWebViewReady = true;
-            if (_pendingReportJson is { } json)
+            var reportHtmlUri = new Uri(Path.Combine(AppContext.BaseDirectory, "Assets", "report.html")).AbsoluteUri;
+            var navigationCompleted = new TaskCompletionSource();
+
+            await ReportWebView.EnsureCoreWebView2Async();
+            ReportWebView.CoreWebView2.NavigationCompleted += (_, _) =>
             {
-                _pendingReportJson = null;
-                _ = ReportWebView.ExecuteScriptAsync($"renderReport({json})");
-            }
-        };
-        ReportWebView.CoreWebView2.Navigate(reportHtmlUri);
+                _reportWebViewReady = true;
+                navigationCompleted.TrySetResult();
+            };
+            ReportWebView.CoreWebView2.Navigate(reportHtmlUri);
+            await navigationCompleted.Task;
+
+            _reportViewModel.GerarRelatorioCommand.Execute(null);
+        }
+        finally
+        {
+            Mouse.OverrideCursor = null;
+        }
     }
 
     private async void OnMenuAjudaClick(object sender, RoutedEventArgs e)

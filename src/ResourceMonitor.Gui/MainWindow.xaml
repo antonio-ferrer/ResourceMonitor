@@ -40,6 +40,44 @@
                 </Trigger>
             </Style.Triggers>
         </Style>
+
+        <!-- Sem x:Key: vira o estilo implícito de TODO CheckBox da janela (Monitoramento,
+             Limpeza, filtros de Gráficos/Relatórios) — troca a caixinha quadrada padrão do
+             Windows por um quadrado arredondado + check desenhado, sem precisar marcar cada
+             CheckBox individualmente. -->
+        <Style TargetType="CheckBox">
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Padding" Value="7,0,0,0" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="CheckBox">
+                        <StackPanel Orientation="Horizontal" Background="Transparent" Cursor="Hand">
+                            <Border x:Name="Box" Width="16" Height="16" CornerRadius="4"
+                                    BorderBrush="#C3C8D1" BorderThickness="1.5" Background="White"
+                                    VerticalAlignment="Center">
+                                <Path x:Name="Check" Data="M 3,8.5 L 6.7,12 L 13,4" Stretch="Uniform" Margin="2.5"
+                                      Stroke="White" StrokeThickness="2.2" StrokeStartLineCap="Round"
+                                      StrokeEndLineCap="Round" StrokeLineJoin="Round" Visibility="Collapsed" />
+                            </Border>
+                            <ContentPresenter Margin="{TemplateBinding Padding}" VerticalAlignment="Center" RecognizesAccessKey="True" />
+                        </StackPanel>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Box" Property="Background" Value="#14171D" />
+                                <Setter TargetName="Box" Property="BorderBrush" Value="#14171D" />
+                                <Setter TargetName="Check" Property="Visibility" Value="Visible" />
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Box" Property="BorderBrush" Value="#14171D" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.5" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
 
     <DockPanel>
@@ -52,9 +90,7 @@
                 <MenuItem x:Name="MenuGraficosTendencia" Header="Tendência" Click="OnMenuGraficosTendenciaClick" />
                 <MenuItem x:Name="MenuGraficosEventos" Header="Eventos de Picos" Click="OnMenuGraficosEventosClick" />
             </MenuItem>
-            <MenuItem x:Name="MenuRelatorios" Header="Relatórios" Style="{StaticResource MainMenuItemStyle}">
-                <MenuItem x:Name="MenuRelatoriosGeral" Header="Geral" Click="OnMenuRelatoriosGeralClick" />
-            </MenuItem>
+            <MenuItem x:Name="MenuRelatorios" Header="Relatórios" Style="{StaticResource MainMenuItemStyle}" Click="OnMenuRelatoriosClick" />
             <MenuItem x:Name="MenuAjuda" Header="Ajuda" Style="{StaticResource MainMenuItemStyle}" Click="OnMenuAjudaClick" />
         </Menu>
 
@@ -487,18 +523,22 @@
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
 
-                <WrapPanel Grid.Row="0" Margin="0,0,0,8">
-                    <Label Content="De:" VerticalAlignment="Center" />
-                    <DatePicker SelectedDate="{Binding PeriodFrom}" VerticalAlignment="Center" Margin="4,0,16,0" />
-                    <Label Content="Até:" VerticalAlignment="Center" />
-                    <DatePicker SelectedDate="{Binding PeriodTo}" VerticalAlignment="Center" Margin="4,0,16,0" />
-                    <CheckBox Content="CPU" IsChecked="{Binding IncludeCpu}" VerticalAlignment="Center" Margin="0,0,10,0" />
-                    <CheckBox Content="RAM" IsChecked="{Binding IncludeRam}" VerticalAlignment="Center" Margin="0,0,10,0" />
-                    <CheckBox Content="Disco I/O" IsChecked="{Binding IncludeDiscoIo}" VerticalAlignment="Center" Margin="0,0,16,0" />
-                    <CheckBox Content="Incluir todos os eventos" IsChecked="{Binding IncludeAllEvents}" VerticalAlignment="Center" Margin="0,0,16,0"
-                              ToolTip="Se desmarcado, o relatório mostra só o resumo e a quebra por métrica, sem a tabela completa de eventos" />
-                    <Button Content="Gerar relatório" Command="{Binding GerarRelatorioCommand}" Padding="12,4" VerticalAlignment="Center" />
-                </WrapPanel>
+                <Border Grid.Row="0" BorderBrush="#E2E5EA" BorderThickness="1" CornerRadius="3" Background="#FAFBFC"
+                        Padding="12,10" Margin="0,4,0,12">
+                    <WrapPanel>
+                        <Label Content="De:" VerticalAlignment="Center" Margin="0,0,4,6" />
+                        <DatePicker SelectedDate="{Binding PeriodFrom}" VerticalAlignment="Center" Margin="0,0,22,6" />
+                        <Label Content="Até:" VerticalAlignment="Center" Margin="0,0,4,6" />
+                        <DatePicker SelectedDate="{Binding PeriodTo}" VerticalAlignment="Center" Margin="0,0,22,6" />
+                        <CheckBox Content="CPU" IsChecked="{Binding IncludeCpu}" VerticalAlignment="Center" Margin="0,0,16,6" />
+                        <CheckBox Content="RAM" IsChecked="{Binding IncludeRam}" VerticalAlignment="Center" Margin="0,0,16,6" />
+                        <CheckBox Content="Disco I/O" IsChecked="{Binding IncludeDiscoIo}" VerticalAlignment="Center" Margin="0,0,22,6" />
+                        <CheckBox Content="Padrão de horário" IsChecked="{Binding IncludeHourlyPattern}" VerticalAlignment="Center" Margin="0,0,16,6" />
+                        <CheckBox Content="Projeção de disco" IsChecked="{Binding IncludeDiskProjection}" VerticalAlignment="Center" Margin="0,0,22,6" />
+                        <CheckBox Content="Incluir todos os eventos" IsChecked="{Binding IncludeAllEvents}" VerticalAlignment="Center" Margin="0,0,0,6"
+                                  ToolTip="Se desmarcado, o relatório mostra só o resumo e a quebra por métrica, sem a tabela completa de eventos" />
+                    </WrapPanel>
+                </Border>
 
                 <TextBlock Grid.Row="1" Text="{Binding StatusText}" Margin="0,0,0,8" />
 
