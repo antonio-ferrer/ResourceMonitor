@@ -230,9 +230,11 @@
     <li><a href="#interrupcao">Alertas interrompidos</a></li>
     <li><a href="#disco">Espaço em disco é diferente</a></li>
     <li><a href="#tendencia">Tendência diária</a></li>
+    <li><a href="#templates">Templates SQL</a></li>
+    <li><a href="#relatorios">Relatórios</a></li>
     <li><a href="#dados">Onde os dados ficam</a></li>
     <li><a href="#limpeza">Limpando dados</a></li>
-    <li><a href="#abas">Mapa das abas</a></li>
+    <li><a href="#abas">Mapa das telas</a></li>
   </ol>
 </nav>
 
@@ -278,7 +280,7 @@
   <p>Toda leitura de CPU e RAM aparece de duas formas:</p>
   <ul>
     <li><b>Bruto</b> — o uso total da máquina, sem descontar nada.</li>
-    <li><b>Líquido</b> — o bruto descontando os processos que estão na lista de exclusão (configurável na aba Monitoramento; por padrão, só o próprio ResourceMonitor).</li>
+    <li><b>Líquido</b> — o bruto descontando os processos que estão na lista de exclusão (configurável em Configurações; por padrão, só o próprio ResourceMonitor).</li>
   </ul>
   <p>Os limites de alerta são avaliados sobre o valor <b>líquido</b> — assim o próprio monitor (ou qualquer outro app que você marque como "ruído", como um antivírus em varredura) não dispara um alerta falso sozinho.</p>
 </section>
@@ -293,17 +295,17 @@
       <tr><td>Amostras seguidas p/ recuperar</td><td>Quantas leituras normais, uma atrás da outra, até o alerta ser dado como encerrado (evento "End")</td></tr>
     </tbody>
   </table>
-  <p>Cada Start+End vira uma linha na "Base de picos" (aba Dados), com a duração entre os dois.</p>
+  <p>Cada Start+End vira uma linha na "Base de picos" — hoje um template SQL padrão (aba Templates), não mais uma grade fixa.</p>
 </section>
 
 <section id="pico">
   <h2>Quando um alerta dispara</h2>
   <p>No instante em que o Start acontece, o app captura automaticamente:</p>
   <ul>
-    <li>A <b>janela de amostras</b> ao redor do pico (alguns segundos antes e depois, configurável) — vira o gráfico da aba Gráficos ao selecionar o evento em "Ver gráfico".</li>
-    <li>O <b>top de processos</b> por CPU, RAM e I/O de disco naquele momento — pra ajudar a identificar o que causou o pico.</li>
+    <li>A <b>janela de amostras</b> ao redor do pico (alguns segundos antes e depois, configurável) — vira o popup de detalhe do pico.</li>
+    <li>O <b>top de processos</b> por CPU, RAM e I/O de disco naquele momento — pra ajudar a identificar o que causou o pico. É a mesma informação que alimenta a seção Ofensores do Relatório.</li>
   </ul>
-  <p>Isso só acontece quando um alerta abre — o app não grava o histórico completo o tempo todo, só ao redor do que importa.</p>
+  <p>Isso só acontece quando um alerta abre — o app não grava o histórico completo o tempo todo, só ao redor do que importa. O popup de detalhe do pico abre de duas formas: clicando num marcador em Gráficos &gt; Eventos de Picos, ou dando duplo-clique numa linha do resultado do template "Base de picos" (aba Templates).</p>
 </section>
 
 <section id="interrupcao">
@@ -316,7 +318,7 @@
   <h2>Espaço em disco é diferente</h2>
   <p>Ao contrário de CPU/RAM/I/O, espaço livre em disco não vira um alerta com Start/End na Base de picos — ele varia devagar, sem "pico" pra capturar. Em vez disso:</p>
   <ul>
-    <li>Cada unidade fixa tem seu próprio limite mínimo de espaço livre, configurado na aba Monitoramento.</li>
+    <li>Cada unidade fixa tem seu próprio limite mínimo de espaço livre, configurado em Configurações.</li>
     <li>Quando um disco cruza o limite, aparece uma <b>notificação</b> pontual (balão da bandeja) — sem gerar linha na Base de picos.</li>
     <li>Se um disco ficar indisponível durante a execução (removido), ele para de ser monitorado até o próximo Iniciar.</li>
   </ul>
@@ -324,7 +326,40 @@
 
 <section id="tendencia">
   <h2>Tendência diária</h2>
-  <p>Além do ciclo rápido, a cada ~5 minutos o app grava um ponto na <b>tendência diária</b>: a média do dia (até aquele momento) de CPU, RAM, I/O e uso de disco. É pensada pra responder uma pergunta diferente da dos alertas — não "teve algum pico?", mas <b>"o uso normal está subindo ao longo das semanas?"</b>, um sinal melhor pra decidir se vale a pena trocar hardware. Aparece como gráfico na aba Gráficos e no Relatório, e como tabela exportável na aba Dados.</p>
+  <p>Além do ciclo rápido, a cada ~5 minutos o app grava um ponto na <b>tendência diária</b>: a média do dia (até aquele momento) de CPU, RAM, I/O e uso de disco. É pensada pra responder uma pergunta diferente da dos alertas — não "teve algum pico?", mas <b>"o uso normal está subindo ao longo das semanas?"</b>, um sinal melhor pra decidir se vale a pena trocar hardware. Aparece como gráfico em Gráficos &gt; Tendência, como seção do Relatório (junto com a Projeção de espaço em disco, que usa essa mesma série), e como template "Tendência diária" na aba Templates (com exportação CSV).</p>
+</section>
+
+<section id="templates">
+  <h2>Templates SQL</h2>
+  <p>A aba Templates é uma lista de consultas SQL salvas, sempre <b>somente leitura</b> — mesmo que o texto tente um <code>UPDATE</code> ou <code>DELETE</code>, o app rejeita antes de rodar (validação de texto + conexão aberta em modo somente-leitura, então nem um comando disfarçado passa). Três templates vêm prontos e não podem ser editados nem excluídos:</p>
+  <table class="data-table">
+    <thead><tr><th>Template</th><th>O que mostra</th></tr></thead>
+    <tbody>
+      <tr><td>Tendência diária</td><td>Médias diárias de CPU/RAM/I/O/disco no período</td></tr>
+      <tr><td>Ofensores</td><td>Processos que mais aparecem nos snapshots de alerta, com ocorrências e valor médio/máximo</td></tr>
+      <tr><td>Base de picos</td><td>Eventos Start/End pareados, com uma aproximação da duração de cada pico</td></tr>
+    </tbody>
+  </table>
+  <p>Além desses, dá pra criar templates próprios: escreve o SQL (com destaque de campo <code>$from</code>/<code>$to</code> pro período selecionado), executa pra conferir o resultado, e só então o botão "Salvar" fica disponível — o app não deixa salvar um template que nunca rodou com sucesso. Templates criados por você podem ser editados e excluídos; os 3 padrão, não.</p>
+  <p>O resultado de qualquer template vira uma grade exportável em CSV. Se o resultado tiver as colunas <code>StartEventId</code> e <code>Metric</code> — como o template "Base de picos" sempre tem —, dar duplo-clique numa linha abre o mesmo popup de detalhe do pico usado em Gráficos &gt; Eventos de Picos.</p>
+</section>
+
+<section id="relatorios">
+  <h2>Relatórios</h2>
+  <p>Um documento único, pensado pra imprimir ou exportar como PDF, com várias seções sobre o mesmo período selecionado. Abre já carregado com a última semana — não precisa clicar em nada — e qualquer mudança no filtro (data ou checkbox) já gera o relatório de novo sozinho.</p>
+  <table class="data-table">
+    <thead><tr><th>Seção</th><th>O que mostra</th><th>Aparece quando</th></tr></thead>
+    <tbody>
+      <tr><td>Resumo do período</td><td>Total de eventos, tempo em alerta, maior pico</td><td>Sempre</td></tr>
+      <tr><td>Por métrica</td><td>Eventos e duração, quebrados por CPU/RAM/Disco I/O</td><td>Sempre que houver eventos</td></tr>
+      <tr><td>Ofensores</td><td>Processos que mais ofenderam no período, agregados (soma de ocorrências em CPU+RAM+I/O)</td><td>Checkbox "Ofensores" marcado e houver dado</td></tr>
+      <tr><td>Padrão de horário</td><td>Mapa de calor dia da semana × hora, pra achar recorrência ("toda sexta às 14h")</td><td>Checkbox "Padrão de horário" marcado e houver eventos</td></tr>
+      <tr><td>Tendência diária</td><td>Mesmo gráfico da aba Gráficos, no período do relatório</td><td>Sempre que houver tendência coletada</td></tr>
+      <tr><td>Projeção de espaço em disco</td><td>Estimativa de quantos dias até a unidade do sistema esgotar, baseada na tendência</td><td>Checkbox "Projeção de disco" marcado e houver tendência</td></tr>
+      <tr><td>Todos os eventos</td><td>Tabela completa, evento a evento</td><td>Checkbox "Incluir todos os eventos" marcado</td></tr>
+    </tbody>
+  </table>
+  <p>Os checkboxes de métrica (CPU/RAM/Disco I/O) filtram o relatório inteiro — com os três desmarcados, não sobra dado pra seção nenhuma, nem Ofensores nem Padrão de horário. O botão de imprimir usa só o conteúdo do documento; a barra de filtros (fora do documento) nunca aparece na impressão.</p>
 </section>
 
 <section id="dados">
@@ -332,9 +367,9 @@
   <table class="data-table">
     <thead><tr><th>Categoria</th><th>O que é</th><th>Onde aparece</th></tr></thead>
     <tbody>
-      <tr><td>Cache</td><td>Amostras em memória do ciclo rápido — não é salvo em arquivo, some quando o monitoramento para</td><td>Gráfico "ao vivo" (aba Gráficos)</td></tr>
-      <tr><td>Base de picos</td><td>Eventos de alerta (Start/End), janela de amostras de cada pico, e o top de processos</td><td>Aba Dados, aba Gráficos ("Ver gráfico"), Relatório</td></tr>
-      <tr><td>Tendência diária</td><td>Médias diárias de CPU/RAM/I/O/disco, atualizadas a cada ~5min</td><td>Aba Dados, aba Gráficos, Relatório</td></tr>
+      <tr><td>Cache</td><td>Amostras em memória do ciclo rápido — não é salvo em arquivo, some quando o monitoramento para</td><td>Home, Gráficos &gt; Dados Correntes</td></tr>
+      <tr><td>Base de picos</td><td>Eventos de alerta (Start/End), janela de amostras de cada pico, e o top de processos por CPU/RAM/I/O</td><td>Templates ("Base de picos", "Ofensores"), Gráficos &gt; Eventos de Picos, Relatório</td></tr>
+      <tr><td>Tendência diária</td><td>Médias diárias de CPU/RAM/I/O/disco, atualizadas a cada ~5min</td><td>Templates ("Tendência diária"), Gráficos &gt; Tendência, Relatório</td></tr>
     </tbody>
   </table>
   <p>Tudo fica em <code>%LOCALAPPDATA%\ResourceMonitor\</code>, compartilhado entre o app de console e a interface gráfica — não importa qual dos dois você abre, os dois leem e escrevem o mesmo lugar.</p>
@@ -342,18 +377,21 @@
 
 <section id="limpeza">
   <h2>Limpando dados</h2>
-  <p>Na aba Dados, o painel "Limpeza" apaga por categoria (cache, tendência, base de picos — cada uma com sua própria caixa de seleção), sempre com confirmação antes. Apagar a base de picos ou a tendência exige o monitoramento parado; o cache pode ser limpo a qualquer momento, mas só existe enquanto o app está rodando.</p>
+  <p>Em Configurações, o painel "Limpeza" apaga por categoria (cache, tendência, base de picos — cada uma com sua própria caixa de seleção), sempre com confirmação antes. Apagar a base de picos ou a tendência exige o monitoramento parado; o cache pode ser limpo a qualquer momento, mas só existe enquanto o app está rodando.</p>
 </section>
 
 <section id="abas">
-  <h2>Mapa das abas</h2>
+  <h2>Mapa das telas</h2>
   <table class="data-table">
-    <thead><tr><th>Aba</th><th>Pra que serve</th></tr></thead>
+    <thead><tr><th>Menu</th><th>Pra que serve</th></tr></thead>
     <tbody>
-      <tr><td>Monitoramento</td><td>Ajustar limites, processos excluídos, discos monitorados, iniciar/parar</td></tr>
-      <tr><td>Dados</td><td>Tendência diária e Base de picos em tabela, exportação CSV, limpeza</td></tr>
-      <tr><td>Gráficos</td><td>Gráfico ao vivo, gráfico de um pico selecionado, tendência diária</td></tr>
-      <tr><td>Relatórios</td><td>Resumo imprimível por período — pra decisão de hardware ou registro</td></tr>
+      <tr><td>Home</td><td>Visão geral: resumo do computador, status ativo/inativo, gráfico ao vivo, top processos por CPU/RAM/Disco I/O</td></tr>
+      <tr><td>Configurações</td><td>Limites de alerta, processos excluídos, discos monitorados, iniciar com o Windows, iniciar/parar monitoramento, limpeza de dados</td></tr>
+      <tr><td>Templates</td><td>Consultas SQL somente-leitura salvas — 3 padrão (Tendência diária, Ofensores, Base de picos) mais as que você criar</td></tr>
+      <tr><td>Gráficos &gt; Dados Correntes</td><td>Gráfico ao vivo do ciclo rápido</td></tr>
+      <tr><td>Gráficos &gt; Tendência</td><td>Tendência diária em gráfico</td></tr>
+      <tr><td>Gráficos &gt; Eventos de Picos</td><td>Tendência diária com marcadores nos dias com alerta — clicar num marcador abre o detalhe do pico</td></tr>
+      <tr><td>Relatórios</td><td>Documento imprimível por período, com várias seções (resumo, por métrica, ofensores, padrão de horário, tendência, projeção de disco, eventos) — pra decisão de hardware ou registro</td></tr>
       <tr><td>Ajuda</td><td>Esta página</td></tr>
     </tbody>
   </table>
