@@ -147,6 +147,17 @@
   .legend { display: flex; gap: 20px; flex-wrap: wrap; margin-top: 10px; font-size: 12px; color: var(--muted); }
   .legend span { display: inline-flex; align-items: center; gap: 6px; }
 
+  /* width:100% + table-layout:fixed esticam a grade pra ocupar a mesma largura das outras
+     seções (chart-frame, events-table) — sem isso a tabela encolhe pro tamanho do conteúdo
+     (largura das 24 colunas de 1 caractere) e fica bem mais estreita que o resto. */
+  .heatmap-table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 10px; }
+  .heatmap-table th { font-weight: 400; color: var(--faint); padding: 0 0 4px; text-align: center; }
+  .heatmap-table th.day-header, .heatmap-table td.day-label { width: 46px; text-align: right; padding-right: 8px; font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .heatmap-table td.cell { height: 20px; border: 1px solid var(--line); }
+  .heatmap-caption { margin-top: 10px; font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .heatmap-scale { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--faint); }
+  .heatmap-scale .swatch { width: 12px; height: 12px; border: 1px solid var(--line); display: inline-block; }
+
   .table-wrap { overflow-x: auto; }
   .events-table { width: 100%; min-width: 720px; border-collapse: collapse; font-size: 12.5px; }
   .events-table th {
@@ -232,6 +243,14 @@
     </thead>
     <tbody id="metricTableBody"></tbody>
   </table>
+</section>
+
+<section id="secaoPadraoHorario">
+  <h2>Padrão de horário dos alertas</h2>
+  <div class="table-wrap">
+    <table class="heatmap-table" id="heatmapTable"></table>
+  </div>
+  <div class="heatmap-caption" id="heatmapCaption"></div>
 </section>
 
 <section id="secaoTendencia">
@@ -408,6 +427,55 @@ function renderReport(data) {
       tr.appendChild(el('td', null, m.avgLabel));
       metricBody.appendChild(tr);
     });
+  }
+
+  // Padrão de horário dos alertas
+  const secaoPadraoHorario = document.getElementById('secaoPadraoHorario');
+  const pattern = data.hourlyPattern;
+  if (!pattern.available) {
+    secaoPadraoHorario.style.display = 'none';
+  } else {
+    secaoPadraoHorario.style.display = '';
+    const table = document.getElementById('heatmapTable');
+    table.innerHTML = '';
+
+    const headRow = document.createElement('tr');
+    headRow.appendChild(el('th', 'day-header'));
+    for (let hour = 0; hour < 24; hour++) {
+      headRow.appendChild(el('th', null, hour % 3 === 0 ? String(hour).padStart(2, '0') : ''));
+    }
+    table.appendChild(headRow);
+
+    pattern.rows.forEach(row => {
+      const tr = document.createElement('tr');
+      tr.appendChild(el('td', 'day-label', row.dayLabel));
+      row.counts.forEach(count => {
+        const td = el('td', 'cell');
+        if (count > 0) {
+          const alpha = 0.2 + 0.8 * (count / pattern.maxCount);
+          td.style.backgroundColor = 'rgba(220, 38, 38, ' + alpha.toFixed(2) + ')';
+          td.title = row.dayLabel + ' — ' + count + ' ocorrência' + (count === 1 ? '' : 's');
+        }
+        tr.appendChild(td);
+      });
+      table.appendChild(tr);
+    });
+
+    const caption = document.getElementById('heatmapCaption');
+    caption.innerHTML = '';
+    if (pattern.topSlotLabel) {
+      caption.appendChild(el('span', null, 'Pico mais frequente: ' + pattern.topSlotLabel + '.'));
+    }
+    const scale = el('span', 'heatmap-scale');
+    const swatchLight = el('span', 'swatch');
+    swatchLight.style.backgroundColor = 'rgba(220, 38, 38, 0.2)';
+    const swatchDark = el('span', 'swatch');
+    swatchDark.style.backgroundColor = 'rgba(220, 38, 38, 1)';
+    scale.appendChild(document.createTextNode('menos'));
+    scale.appendChild(swatchLight);
+    scale.appendChild(swatchDark);
+    scale.appendChild(document.createTextNode('mais'));
+    caption.appendChild(scale);
   }
 
   // Tendência diária

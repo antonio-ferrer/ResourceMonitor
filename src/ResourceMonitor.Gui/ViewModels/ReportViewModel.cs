@@ -58,7 +58,8 @@ public partial class ReportViewModel : ObservableObject
 
         var hardware = HardwareInfoReader.Capture();
         var diskProjection = BuildDiskProjection(dailyTrend, hardware);
-        var payload = BuildPayload(events, hardware, effectiveFrom, effectiveTo, dailyTrend, diskProjection);
+        var hourlyPattern = BuildHourlyPattern(events);
+        var payload = BuildPayload(events, hardware, effectiveFrom, effectiveTo, dailyTrend, diskProjection, hourlyPattern);
         var json = JsonSerializer.Serialize(payload);
 
         StatusText = $"Relatório gerado: {events.Count} evento(s) no período.";
@@ -67,7 +68,7 @@ public partial class ReportViewModel : ObservableObject
 
     private object BuildPayload(
         List<AlertEpisodeRow> events, HardwareInfo hardware, DateTime effectiveFrom, DateTime effectiveTo,
-        List<DailyAggregateRow> dailyTrend, object diskProjection)
+        List<DailyAggregateRow> dailyTrend, object diskProjection, object hourlyPattern)
     {
         var withDuration = events.Where(e => e.DurationMinutes.HasValue).ToList();
         var ongoingCount = events.Count - withDuration.Count;
@@ -135,6 +136,7 @@ public partial class ReportViewModel : ObservableObject
                             : $"{(sum / groupWithDuration.Count).ToString("N1", PtBr)} min",
                     };
                 }),
+            hourlyPattern,
             dailyTrendSystemDrive = dailyTrend.Count > 0 ? dailyTrend[0].SystemDrive : "—",
             // Valores numéricos (não texto formatado) — o gráfico de canvas precisa plotar
             // as coordenadas, diferente do resto do relatório que só exibe rótulos prontos.
@@ -226,6 +228,63 @@ public partial class ReportViewModel : ObservableObject
             dropRateLabel = $"{(-slope).ToString("N2", PtBr)} %/dia{dropRateGbPerDayLabel}",
             daysLabel = $"{wholeDays} dia{(wholeDays == 1 ? "" : "s")}",
             estimatedDateLabel = estimatedDate.ToString("dd/MM/yyyy", PtBr),
+        };
+    }
+
+    // Segunda a domingo em vez da ordem padrão do DayOfWeek (que começa no domingo) — mais
+    // fácil de reconhecer um padrão de semana de trabalho ("toda sexta às 14h").
+    private static readonly int[] WeekDisplayOrder = { 1, 2, 3, 4, 5, 6, 0 };
+    private static readonly string[] WeekDayAbbreviations = { "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom" };
+
+    // Agrupa os episódios (já filtrados por métrica/período, mesma lista da tabela "Todos
+    // os eventos") por dia da semana × hora do dia, em hora local — só faz sentido pra
+    // identificar padrão de recorrência ("toda sexta às 14h") na hora que a pessoa vive.
+    private static object BuildHourlyPattern(List<AlertEpisodeRow> events)
+    {
+        if (events.Count == 0)
+        {
+            return new { available = false };
+        }
+
+        var grid = new int[7, 24];
+        foreach (var e in events)
+        {
+            var local = e.Timestamp.ToLocalTime();
+            grid[(int)local.DayOfWeek, local.Hour]++;
+        }
+
+        var maxCount = 0;
+        var topDayIndex = 0;
+        var topHour = 0;
+        for (var day = 0; day < 7; day++)
+        {
+            for (var hour = 0; hour < 24; hour++)
+            {
+                if (grid[day, hour] > maxCount)
+                {
+                    maxCount = grid[day, hour];
+                    topDayIndex = day;
+                    topHour = hour;
+                }
+            }
+        }
+
+        var rows = WeekDisplayOrder.Select((dayIndex, i) => new
+        {
+            dayLabel = WeekDayAbbreviations[i],
+            counts = Enumerable.Range(0, 24).Select(hour => grid[dayIndex, hour]),
+        });
+
+        var topSlotLabel = maxCount > 0
+            ? $"{PtBr.DateTimeFormat.GetDayName((DayOfWeek)topDayIndex)} às {topHour:00}h ({maxCount} ocorrência{(maxCount == 1 ? "" : "s")})"
+            : null;
+
+        return new
+        {
+            available = true,
+            rows,
+            maxCount,
+            topSlotLabel,
         };
     }
 
