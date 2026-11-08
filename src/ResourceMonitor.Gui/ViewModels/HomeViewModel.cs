@@ -3,7 +3,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using ResourceMonitor.Configuration;
 using ResourceMonitor.Gui;
-using ResourceMonitor.Gui.Converters;
+using ResourceMonitor.Gui.Controls;
 using ResourceMonitor.Monitoring;
 using ResourceMonitor.Sampling;
 using ResourceMonitor.Updates;
@@ -37,7 +37,8 @@ public partial class HomeViewModel : ObservableObject
     public ObservableCollection<GroupedProcessUsage> TopByRam { get; } = new();
     public ObservableCollection<GroupedProcessUsage> TopByIo { get; } = new();
 
-    public event EventHandler<string>? LiveSamplesReady;
+    // Gráfico ao vivo da Home (Controls/LineChart), por binding.
+    [ObservableProperty] private ChartData? liveChart;
 
     public HomeViewModel(MonitoringService monitoringService, Func<MonitorSettings> getSettings, LiveMonitorService liveMonitor)
     {
@@ -99,7 +100,7 @@ public partial class HomeViewModel : ObservableObject
     // InvokeAsync (não Invoke): o tick do monitor ao vivo não fica preso esperando a UI.
     private void OnLiveSnapshotUpdated(object? sender, LiveSnapshot snapshot)
     {
-        var json = ChartJsonFormatter.ToChartJson(snapshot.Samples);
+        var chart = ChartData.FromLiveSamples(snapshot.Samples);
 
         System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
         {
@@ -107,7 +108,7 @@ public partial class HomeViewModel : ObservableObject
             ReplaceAll(TopByRam, snapshot.TopByRam);
             ReplaceAll(TopByIo, snapshot.TopByIo);
 
-            LiveSamplesReady?.Invoke(this, json);
+            LiveChart = chart;
         });
     }
 

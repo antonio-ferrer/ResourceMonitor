@@ -126,7 +126,7 @@ public sealed class DiskUsageFromFreeConverter : IValueConverter
         throw new NotSupportedException();
 }
 
-// Timestamps são gravados/lidos em UTC (ver PermanentDatabase/CacheDatabase) — esse converter
+// Timestamps são gravados/lidos em UTC (ver PermanentDatabase) — esse converter
 // passa pra hora local antes de formatar, senão a grid mostra a hora errada pro usuário.
 public sealed class LocalDateTimeConverter : IValueConverter
 {

@@ -19,9 +19,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="Assets\chart.html">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
     <None Include="Assets\report.html">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>

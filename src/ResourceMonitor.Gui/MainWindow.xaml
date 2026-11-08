@@ -6,6 +6,7 @@
         xmlns:local="clr-namespace:ResourceMonitor.Gui"
         xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
         xmlns:conv="clr-namespace:ResourceMonitor.Gui.Converters"
+        xmlns:charts="clr-namespace:ResourceMonitor.Gui.Controls"
         mc:Ignorable="d"
         Icon="Assets/app.ico"
         Title="ResourceMonitor" Height="700" Width="1000">
@@ -223,7 +224,7 @@
                                     <ColumnDefinition Width="220" />
                                 </Grid.ColumnDefinitions>
 
-                                <wv2:WebView2 Grid.Column="0" x:Name="HomeLiveChartWebView" Height="220" />
+                                <charts:LineChart Grid.Column="0" Height="220" Data="{Binding LiveChart}" MaxXLabels="8" />
 
                                 <StackPanel Grid.Column="1" Margin="12,0,0,0">
                                     <TextBlock Text="Top 5 processos" FontWeight="Bold" Margin="0,0,0,6" />
@@ -578,7 +579,7 @@
                 </Grid.RowDefinitions>
 
                 <TextBlock Grid.Row="0" Text="{Binding LiveStatusText, StringFormat='Dados correntes (ao vivo): {0}'}" Margin="0,0,0,8" FontWeight="Bold" />
-                <wv2:WebView2 Grid.Row="1" x:Name="LiveChartWebView" />
+                <charts:LineChart Grid.Row="1" Data="{Binding LiveChart}" MaxXLabels="8" />
             </Grid>
 
             <Grid x:Name="ChartTrendTabRoot" Margin="16" Visibility="Collapsed">
@@ -588,7 +589,8 @@
                 </Grid.RowDefinitions>
 
                 <TextBlock Grid.Row="0" Text="{Binding TrendStatusText}" Margin="0,0,0,8" FontWeight="Bold" />
-                <wv2:WebView2 Grid.Row="1" x:Name="TrendChartWebView" />
+                <charts:LineChart Grid.Row="1" Data="{Binding TrendChart}"
+                                  EmptyText="Sem dados de tendência ainda (aguarde algumas capturas de ~5 em 5min)." />
             </Grid>
 
             <Grid x:Name="ChartEventosTabRoot" Margin="16" Visibility="Collapsed">
@@ -612,8 +614,9 @@
                 <TextBlock Grid.Row="1" Text="{Binding EventosStatusText}" Margin="0,0,0,8" />
 
                 <!-- Clicar num marcador (bolinha) abre EpisodeDetailWindow com os processos
-                     daquele pico — ver chart.html (postMessage) + OnEventsChartWebMessageReceived. -->
-                <wv2:WebView2 Grid.Row="2" x:Name="EventsChartWebView" />
+                     daquele pico — ver OnEventsChartMarkerClicked. Passar o mouse mostra os valores do dia. -->
+                <charts:LineChart Grid.Row="2" Data="{Binding EventsChart}" MarkerClicked="OnEventsChartMarkerClicked"
+                                  EmptyText="Nenhum dado histórico encontrado pro período." />
             </Grid>
 
             <Grid x:Name="ReportTabRoot" Margin="16" Visibility="Collapsed">

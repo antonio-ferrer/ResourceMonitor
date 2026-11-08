@@ -2,7 +2,6 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
-using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -11,7 +10,9 @@ using System.Windows.Navigation;
 using System.Windows.Threading;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
+using ResourceMonitor.Gui.Controls;
 using ResourceMonitor.Gui.ViewModels;
+using ResourceMonitor.Storage;
 using Application = System.Windows.Application;
 using MenuItem = System.Windows.Controls.MenuItem;
 
@@ -25,21 +26,10 @@ public partial class MainWindow : Window
     private readonly ChartViewModel _chartViewModel;
     private readonly ReportViewModel _reportViewModel;
 
-    private bool _homeWebViewReady;
-    private string? _pendingHomeJson;
-
-    private bool _liveWebViewReady;
-    private string? _pendingLiveJson;
-
-    private bool _trendWebViewReady;
-    private string? _pendingTrendJson;
-
     private bool _reportWebViewReady;
     private string? _pendingReportJson;
 
-    private bool _eventsWebViewReady;
-    private string? _pendingEventsJson;
-
+    // Só Relatórios e Ajuda usam WebView2 (os gráficos são nativos, ver Controls/LineChart).
     private readonly List<WebView2> _initializedWebViews = new();
 
     public MainWindow()
@@ -71,17 +61,10 @@ public partial class MainWindow : Window
         _templatesViewModel.ResultReady += OnTemplateResultReady;
         _templatesViewModel.PropertyChanged += OnTemplatesViewModelPropertyChanged;
 
-        _homeViewModel.LiveSamplesReady += OnHomeLiveSamplesReady;
-        _chartViewModel.LiveSamplesReady += OnLiveSamplesReady;
-        _chartViewModel.DailyTrendReady += OnDailyTrendReady;
-        _chartViewModel.TrendWithEventsReady += OnTrendWithEventsReady;
         _reportViewModel.ReportReady += OnReportReady;
 
-        // Só depois de assinar DailyTrendReady acima — chamado dentro do construtor do
-        // ChartViewModel dispararia o evento antes de existir alguém escutando.
         _chartViewModel.LoadDailyTrendCommand.Execute(null);
 
-        Loaded += OnLoaded;
         IsVisibleChanged += (_, _) =>
         {
             UpdateLiveConsumer();
@@ -107,9 +90,6 @@ public partial class MainWindow : Window
         return Path.Combine(app.DataDirectory, app.Settings.LogDirectory, "resourcemonitor.db");
     }
 
-    private static string ChartHtmlUri =>
-        new Uri(Path.Combine(AppContext.BaseDirectory, "Assets", "chart.html")).AbsoluteUri;
-
     // Todo WebView2 da janela passa por aqui: ambiente compartilhado (pasta de dados em
     // %LOCALAPPDATA%, ver App.GetWebViewEnvironmentAsync) e registro pra
     // UpdateWebViewsBackgroundState conseguir suspender os que já existem.
@@ -118,23 +98,6 @@ public partial class MainWindow : Window
         var environment = await ((App)Application.Current).GetWebViewEnvironmentAsync();
         await webView.EnsureCoreWebView2Async(environment);
         _initializedWebViews.Add(webView);
-    }
-
-    // Só o gráfico da Home sobe junto com a janela — os outros WebView2 (cada um é um processo
-    // renderer próprio, ~20–25 MB) são criados na primeira vez que a tela deles é aberta.
-    private async void OnLoaded(object sender, RoutedEventArgs e)
-    {
-        await InitializeWebViewAsync(HomeLiveChartWebView);
-        HomeLiveChartWebView.CoreWebView2.NavigationCompleted += (_, _) =>
-        {
-            _homeWebViewReady = true;
-            if (_pendingHomeJson is { } json)
-            {
-                _pendingHomeJson = null;
-                _ = HomeLiveChartWebView.ExecuteScriptAsync($"renderSamples({json})");
-            }
-        };
-        HomeLiveChartWebView.CoreWebView2.Navigate(ChartHtmlUri);
     }
 
     private bool _webViewsInBackground;
@@ -356,7 +319,6 @@ public partial class MainWindow : Window
         var isInterrupted = interruptedIndex >= 0 && row[interruptedIndex] is "1" or "True" or "true";
 
         ShowSection(ChartEventosTabRoot, MenuGraficos);
-        await EnsureEventsWebViewsInitializedAsync();
         await _chartViewModel.EnsureInitialPeriodAsync();
         _chartViewModel.LoadForAlertEvent(alertEventId, metric, timestamp, durationMinutes, isInterrupted);
         ShowEpisodeDetailPopup();
@@ -378,119 +340,29 @@ public partial class MainWindow : Window
         return -1;
     }
 
-    private bool _liveWebViewInitStarted;
-
-    // Criado só na primeira vez que a tela abre, já visível (mesmo padrão de Eventos/Relatórios).
-    // Amostras que chegarem antes ficam em _pendingLiveJson.
-    private async void OnMenuGraficosDadosCorrentesClick(object sender, RoutedEventArgs e)
-    {
+    private void OnMenuGraficosDadosCorrentesClick(object sender, RoutedEventArgs e) =>
         ShowSection(ChartLiveTabRoot, MenuGraficos);
 
-        if (_liveWebViewInitStarted)
-        {
-            return;
-        }
-
-        _liveWebViewInitStarted = true;
-        await InitializeWebViewAsync(LiveChartWebView);
-        LiveChartWebView.CoreWebView2.NavigationCompleted += (_, _) =>
-        {
-            _liveWebViewReady = true;
-            if (_pendingLiveJson is { } json)
-            {
-                _pendingLiveJson = null;
-                _ = LiveChartWebView.ExecuteScriptAsync($"renderSamples({json})");
-            }
-        };
-        LiveChartWebView.CoreWebView2.Navigate(ChartHtmlUri);
-    }
-
-    private bool _trendWebViewInitStarted;
-
-    // Idem Dados Correntes. A tendência já é carregada no construtor e espera em _pendingTrendJson.
-    private async void OnMenuGraficosTendenciaClick(object sender, RoutedEventArgs e)
-    {
+    // A tendência já é carregada no construtor.
+    private void OnMenuGraficosTendenciaClick(object sender, RoutedEventArgs e) =>
         ShowSection(ChartTrendTabRoot, MenuGraficos);
 
-        if (_trendWebViewInitStarted)
-        {
-            return;
-        }
-
-        _trendWebViewInitStarted = true;
-        await InitializeWebViewAsync(TrendChartWebView);
-        TrendChartWebView.CoreWebView2.NavigationCompleted += (_, _) =>
-        {
-            _trendWebViewReady = true;
-            if (_pendingTrendJson is { } json)
-            {
-                _pendingTrendJson = null;
-                _ = TrendChartWebView.ExecuteScriptAsync($"renderDailyTrend({json})");
-            }
-        };
-        TrendChartWebView.CoreWebView2.Navigate(ChartHtmlUri);
-    }
-
-    // Iniciado só na primeira vez que a seção é aberta (mesmo padrão de Relatórios/Ajuda) —
-    // também é chamado por "Ver gráfico" (aba Dados), que pode chegar aqui antes do usuário
-    // nunca ter clicado no menu Gráficos.
     private async void OnMenuGraficosEventosClick(object sender, RoutedEventArgs e)
     {
         ShowSection(ChartEventosTabRoot, MenuGraficos);
-        await EnsureEventsWebViewsInitializedAsync();
         await _chartViewModel.EnsureInitialPeriodAsync();
     }
 
-    private bool _eventsWebViewInitStarted;
-
-    private async Task EnsureEventsWebViewsInitializedAsync()
+    // Clique na bolinha de um marcador: popup com data/intervalo + processos daquele pico.
+    private void OnEventsChartMarkerClicked(object? sender, ChartMarker marker)
     {
-        if (_eventsWebViewInitStarted)
+        if (marker.Tag is not AlertEpisodeRow episode)
         {
             return;
         }
 
-        _eventsWebViewInitStarted = true;
-
-        await InitializeWebViewAsync(EventsChartWebView);
-        EventsChartWebView.CoreWebView2.NavigationCompleted += (_, _) =>
-        {
-            _eventsWebViewReady = true;
-            if (_pendingEventsJson is { } json)
-            {
-                _pendingEventsJson = null;
-                _ = EventsChartWebView.ExecuteScriptAsync($"renderTrendWithEvents({json})");
-            }
-        };
-        // Clique na bolinha do marcador (chart.html) posta os dados do episódio de volta — abre
-        // um popup com data/intervalo + processos daquele pico, sem gráfico embutido.
-        EventsChartWebView.CoreWebView2.WebMessageReceived += (_, args) =>
-        {
-            try
-            {
-                var messageJson = args.TryGetWebMessageAsString();
-                using var document = JsonDocument.Parse(messageJson);
-                var root = document.RootElement;
-                if (root.TryGetProperty("alertEventId", out var idProperty) && idProperty.TryGetInt64(out var alertEventId) &&
-                    root.TryGetProperty("metric", out var metricProperty) &&
-                    root.TryGetProperty("timestamp", out var timestampProperty) && timestampProperty.GetString() is { } timestampText)
-                {
-                    var timestamp = DateTimeOffset.Parse(timestampText, null, System.Globalization.DateTimeStyles.RoundtripKind);
-                    double? durationMinutes = root.TryGetProperty("durationMinutes", out var durationProperty) && durationProperty.ValueKind == JsonValueKind.Number
-                        ? durationProperty.GetDouble()
-                        : null;
-                    var isInterrupted = root.TryGetProperty("isInterrupted", out var interruptedProperty) && interruptedProperty.ValueKind == JsonValueKind.True;
-
-                    _chartViewModel.LoadForAlertEvent(alertEventId, metricProperty.GetString() ?? "", timestamp, durationMinutes, isInterrupted);
-                    ShowEpisodeDetailPopup();
-                }
-            }
-            catch (JsonException)
-            {
-                // Mensagem que não veio do marcador de eventos (ou formato inesperado); ignora.
-            }
-        };
-        EventsChartWebView.CoreWebView2.Navigate(ChartHtmlUri);
+        _chartViewModel.LoadForAlertEpisode(episode);
+        ShowEpisodeDetailPopup();
     }
 
     private EpisodeDetailWindow? _episodeDetailWindow;
@@ -564,54 +436,6 @@ public partial class MainWindow : Window
         HelpWebView.CoreWebView2.Navigate(helpHtmlUri);
     }
 
-
-    private void OnHomeLiveSamplesReady(object? sender, string json)
-    {
-        if (_homeWebViewReady)
-        {
-            _ = HomeLiveChartWebView.ExecuteScriptAsync($"renderSamples({json})");
-        }
-        else
-        {
-            _pendingHomeJson = json;
-        }
-    }
-
-    private void OnLiveSamplesReady(object? sender, string json)
-    {
-        if (_liveWebViewReady)
-        {
-            _ = LiveChartWebView.ExecuteScriptAsync($"renderSamples({json})");
-        }
-        else
-        {
-            _pendingLiveJson = json;
-        }
-    }
-
-    private void OnTrendWithEventsReady(object? sender, string json)
-    {
-        if (_eventsWebViewReady)
-        {
-            _ = EventsChartWebView.ExecuteScriptAsync($"renderTrendWithEvents({json})");
-        }
-        else
-        {
-            _pendingEventsJson = json;
-        }
-    }
-
-    private void OnDailyTrendReady(object? sender, string json)
-    {
-        if (_trendWebViewReady)
-        {
-            _ = TrendChartWebView.ExecuteScriptAsync($"renderDailyTrend({json})");
-        }
-        else
-        {
-            _pendingTrendJson = json;
-        }
-    }
 
     private void OnReportReady(object? sender, string json)
     {

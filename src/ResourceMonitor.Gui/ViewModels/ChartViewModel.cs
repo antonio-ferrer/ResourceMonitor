@@ -1,8 +1,7 @@
 using System.Collections.ObjectModel;
-using System.Text.Json;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using ResourceMonitor.Gui.Converters;
+using ResourceMonitor.Gui.Controls;
 using ResourceMonitor.Monitoring;
 using ResourceMonitor.Sampling;
 using ResourceMonitor.Storage;
@@ -33,9 +32,10 @@ public partial class ChartViewModel : ObservableObject
     [ObservableProperty] private string popupPeriodLabel = string.Empty;
     public ObservableCollection<string> PopupProcessLines { get; } = new();
 
-    public event EventHandler<string>? LiveSamplesReady;
-    public event EventHandler<string>? DailyTrendReady;
-    public event EventHandler<string>? TrendWithEventsReady;
+    // Dados dos gráficos nativos (Controls/LineChart), por binding.
+    [ObservableProperty] private ChartData? liveChart;
+    [ObservableProperty] private ChartData? trendChart;
+    [ObservableProperty] private ChartData? eventsChart;
 
     public ChartViewModel(LiveMonitorService liveMonitor, Func<string> getDatabasePath, AlertEventQueries alertEventQueries)
     {
@@ -88,19 +88,13 @@ public partial class ChartViewModel : ObservableObject
             ? "Tendência diária: sem capturas ainda (aguarde ~5min de monitoramento)."
             : $"Tendência diária: {rows.Count} dia(s) nos últimos 30.";
 
-        // Disco vira "em uso" (100 - livre) pra seguir a mesma direção das outras 3 linhas
-        // (subiu = mais consumo), em vez de misturar com "espaço livre" (subiu = bom).
-        var payload = rows.Select(r => new
-        {
-            date = r.Date.ToString("dd/MM"),
-            cpu = Math.Round(r.AvgCpuRawPercent, 1),
-            ram = Math.Round(r.AvgRamRawPercent, 1),
-            io = Math.Round(r.AvgIoPercent, 1),
-            diskUsage = Math.Round(100 - r.AvgDiskFreePercent, 1),
-        });
-
-        DailyTrendReady?.Invoke(this, JsonSerializer.Serialize(payload));
+        TrendChart = ChartData.FromDailyPoints(rows.Select(ToChartPoint).ToList());
     }
+
+    // Disco vira "em uso" (100 - livre) pra seguir a mesma direção das outras 3 linhas
+    // (subiu = mais consumo), em vez de misturar com "espaço livre" (subiu = bom).
+    private static DailyChartPoint ToChartPoint(DailyAggregateRow row) => new(
+        row.Date.ToString("dd/MM"), row.AvgCpuRawPercent, row.AvgRamRawPercent, row.AvgIoPercent, 100 - row.AvgDiskFreePercent);
 
     // Combina a tendência diária com os eventos de alerta do período, pra responder "o pico
     // aconteceu durante uma tendência de alta, ou foi isolado?". 4 cenários (ver plano):
@@ -127,9 +121,9 @@ public partial class ChartViewModel : ObservableObject
             .Where(e => selectedMetrics.Contains(e.Metric))
             .ToList();
 
-        object trendPayload;
-        object eventsPayload;
-        bool usingCurrentAsBaseline;
+        IReadOnlyList<DailyChartPoint> points;
+        IEnumerable<(int DayIndex, string Metric, List<AlertEpisodeRow> Episodes)> groups;
+        string? footnote = null;
 
         if (trend.Count > 0)
         {
@@ -137,66 +131,47 @@ public partial class ChartViewModel : ObservableObject
                 .Select((row, index) => (row.Date, index))
                 .ToDictionary(x => x.Date, x => x.index);
 
-            trendPayload = trend.Select(r => new
-            {
-                date = r.Date.ToString("dd/MM"),
-                cpu = Math.Round(r.AvgCpuRawPercent, 1),
-                ram = Math.Round(r.AvgRamRawPercent, 1),
-                io = Math.Round(r.AvgIoPercent, 1),
-                diskUsage = Math.Round(100 - r.AvgDiskFreePercent, 1),
-            }).ToList();
+            points = trend.Select(ToChartPoint).ToList();
 
             // Episódio fora dos dias com tendência registrada (ex: início de monitoramento
             // no meio do período) não tem onde ser desenhado — fica de fora do marcador.
             // Agrupado por (dia, métrica) — vários alertas da mesma métrica no mesmo dia viram
             // um marcador só com contagem no label, em vez de pontos empilhados sem explicação.
-            eventsPayload = episodes
-                .Select(e => new { Episode = e, Date = DateOnly.FromDateTime(e.Timestamp.LocalDateTime) })
+            groups = episodes
+                .Select(e => (Episode: e, Date: DateOnly.FromDateTime(e.Timestamp.LocalDateTime)))
                 .Where(x => dayIndexByDate.ContainsKey(x.Date))
                 .GroupBy(x => (DayIndex: dayIndexByDate[x.Date], x.Episode.Metric))
-                .Select(g => new
-                {
-                    dayIndex = g.Key.DayIndex,
-                    metric = g.Key.Metric,
-                    label = FormatMarkerLabel(g.Key.Metric, g.Count(), GetTopOffenderNames(databasePath, g.Select(x => x.Episode.StartEventId), g.Key.Metric)),
-                    // Episódios já vêm ordenados do mais recente pro mais antigo (ver GetAlertEpisodes)
-                    // — clicar na bolinha abre o mais recente do grupo quando há mais de um no dia.
-                    alertEventId = g.First().Episode.StartEventId,
-                    timestamp = g.First().Episode.Timestamp.ToString("O"),
-                    durationMinutes = g.First().Episode.DurationMinutes,
-                    isInterrupted = g.First().Episode.IsInterrupted,
-                })
-                .ToList();
-
-            usingCurrentAsBaseline = false;
+                .Select(g => (g.Key.DayIndex, g.Key.Metric, g.Select(x => x.Episode).ToList()));
         }
         else
         {
-            var current = await SampleCurrentAsync();
-            trendPayload = new[] { current };
-            eventsPayload = episodes
+            points = new[] { await SampleCurrentAsync() };
+            groups = episodes
                 .GroupBy(e => e.Metric)
-                .Select(g => new
-                {
-                    dayIndex = 0,
-                    metric = g.Key,
-                    label = FormatMarkerLabel(g.Key, g.Count(), GetTopOffenderNames(databasePath, g.Select(e => e.StartEventId), g.Key)),
-                    alertEventId = g.First().StartEventId,
-                    timestamp = g.First().Timestamp.ToString("O"),
-                    durationMinutes = g.First().DurationMinutes,
-                    isInterrupted = g.First().IsInterrupted,
-                })
-                .ToList();
-            usingCurrentAsBaseline = true;
+                .Select(g => (0, g.Key, g.ToList()));
+            footnote = "Sem tendência registrada pro período — usando leitura atual como referência.";
         }
 
-        var payload = new { trend = trendPayload, events = eventsPayload, usingCurrentAsBaseline };
+        var markers = new List<ChartMarker>();
+        foreach (var (dayIndex, metric, groupEpisodes) in groups)
+        {
+            if (ChartData.SeriesIndexForMetric(metric) is not { } seriesIndex)
+            {
+                continue;
+            }
+
+            // Episódios já vêm ordenados do mais recente pro mais antigo (ver GetAlertEpisodes)
+            // — clicar na bolinha abre o mais recente do grupo quando há mais de um no dia.
+            var latest = groupEpisodes[0];
+            var label = FormatMarkerLabel(metric, groupEpisodes.Count, GetTopOffenderNames(databasePath, groupEpisodes.Select(e => e.StartEventId), metric));
+            markers.Add(new ChartMarker(dayIndex, seriesIndex, label, latest));
+        }
 
         EventosStatusText = episodes.Count == 0
             ? "Nenhum evento encontrado pro período/recursos selecionados."
             : $"{episodes.Count} evento(s) no período.";
 
-        TrendWithEventsReady?.Invoke(this, JsonSerializer.Serialize(payload));
+        EventsChart = ChartData.FromDailyPoints(points, markers, footnote);
     }
 
     private static string FormatMarkerLabel(string metric, int count, IReadOnlyList<string> topOffenders)
@@ -251,40 +226,39 @@ public partial class ChartViewModel : ObservableObject
 
     // Leitura avulsa (não a janela contínua do LiveMonitorService — granularidade incompatível
     // com um eixo por dia) usada como referência quando não há tendência registrada pro período.
-    private static async Task<object> SampleCurrentAsync()
+    private static async Task<DailyChartPoint> SampleCurrentAsync()
     {
-        var sampler = new ResourceSampler(new DiskMonitor());
+        using var diskMonitor = new DiskMonitor();
+        var sampler = new ResourceSampler(diskMonitor);
         sampler.Sample(Array.Empty<string>());
         await Task.Delay(1100);
         var sample = sampler.Sample(Array.Empty<string>());
 
         if (sample is null)
         {
-            return new { date = "agora", cpu = 0.0, ram = 0.0, io = 0.0, diskUsage = 0.0 };
+            return new DailyChartPoint("agora", 0, 0, 0, 0);
         }
 
         var disk = sample.Disks.Count > 0 ? sample.Disks[0] : null;
-        return new
-        {
-            date = "agora",
-            cpu = Math.Round(sample.CpuRawPercent, 1),
-            ram = Math.Round(sample.RamRawPercent, 1),
-            io = disk is null ? 0.0 : Math.Round(disk.IoPercent, 1),
-            diskUsage = disk is null ? 0.0 : Math.Round(100 - disk.FreePercent, 1),
-        };
+        return new DailyChartPoint(
+            "agora", sample.CpuRawPercent, sample.RamRawPercent, disk?.IoPercent ?? 0, disk is null ? 0 : 100 - disk.FreePercent);
     }
 
     private void OnLiveSnapshotUpdated(object? sender, LiveSnapshot snapshot)
     {
-        var json = ChartJsonFormatter.ToChartJson(snapshot.Samples);
+        var chart = ChartData.FromLiveSamples(snapshot.Samples);
 
         // InvokeAsync (não Invoke): o tick do monitor ao vivo não fica preso esperando a UI.
         System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
         {
-            LiveStatusText =$"{snapshot.Samples.Count} amostra(s) (últimos ~60s).";
-            LiveSamplesReady?.Invoke(this, json);
+            LiveStatusText = $"{snapshot.Samples.Count} amostra(s) (últimos ~60s).";
+            LiveChart = chart;
         });
     }
+
+    // Clique num marcador de Eventos de picos (Tag = episódio mais recente do grupo).
+    public void LoadForAlertEpisode(AlertEpisodeRow episode) =>
+        LoadForAlertEvent(episode.StartEventId, episode.Metric, episode.Timestamp, episode.DurationMinutes, episode.IsInterrupted);
 
     // Popup de "Eventos de Picos": só os processos que colaboraram pra métrica específica do
     // marcador clicado (ex: clicou num pico de RAM, lista só quem mais consumia RAM), não os
