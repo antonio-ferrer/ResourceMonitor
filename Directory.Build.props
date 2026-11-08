@@ -9,7 +9,7 @@
 
     <!-- Versão única do app (GUI, console e Core). É o número que aparece no título da janela e
          que o workflow de release confere contra a tag (vX.Y.Z). -->
-    <Version>0.4.0</Version>
+    <Version>0.4.1</Version>
     <!-- Sem isso, o SDK anexa o hash do commit ao InformationalVersion (ex: "0.4.0+fb86859...")
          por padrão dentro de um repo git — bom pra rastreabilidade de build, ruim pro título
          da janela, que só quer "v0.4.0" limpo. -->
