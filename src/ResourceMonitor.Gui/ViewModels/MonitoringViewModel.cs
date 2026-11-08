@@ -46,7 +46,6 @@ public partial class MonitoringViewModel : ObservableObject
     [ObservableProperty] private string newExcludedProcessPattern = string.Empty;
 
     // Realocado da antiga aba Dados (não é consulta, é ação administrativa — ver Templates).
-    [ObservableProperty] private bool clearCacheSelected = true;
     [ObservableProperty] private bool clearTrendSelected = true;
     [ObservableProperty] private bool clearPeaksSelected = true;
 
@@ -272,15 +271,14 @@ public partial class MonitoringViewModel : ObservableObject
     [RelayCommand]
     private void ClearSelected()
     {
-        if (!ClearCacheSelected && !ClearTrendSelected && !ClearPeaksSelected)
+        if (!ClearTrendSelected && !ClearPeaksSelected)
         {
             return;
         }
 
-        // Cache é em memória, sem tabela em disco — só picos/tendência exigem o
-        // monitoramento parado (ClearData abre sua própria conexão, sem coordenar com
-        // uma instância de PermanentDatabase que porventura já esteja escrevendo).
-        if ((ClearTrendSelected || ClearPeaksSelected) && _monitoringService.IsRunning)
+        // Exige o monitoramento parado: ClearData abre sua própria conexão, sem coordenar com
+        // uma instância de PermanentDatabase que porventura já esteja escrevendo.
+        if (_monitoringService.IsRunning)
         {
             MessageBox.Show(
                 "Pare o monitoramento antes de limpar a tendência diária ou a base de picos.",
@@ -291,7 +289,6 @@ public partial class MonitoringViewModel : ObservableObject
         }
 
         var items = new List<string>();
-        if (ClearCacheSelected) items.Add("cache (amostras em memória)");
         if (ClearTrendSelected) items.Add("tendência diária");
         if (ClearPeaksSelected) items.Add("base de picos (eventos, amostras e processos)");
 
@@ -306,15 +303,7 @@ public partial class MonitoringViewModel : ObservableObject
             return;
         }
 
-        if (ClearCacheSelected)
-        {
-            _monitoringService.ClearCache();
-        }
-
-        if (ClearTrendSelected || ClearPeaksSelected)
-        {
-            PermanentDatabase.ClearData(_getDatabasePath(), ClearPeaksSelected, ClearTrendSelected);
-        }
+        PermanentDatabase.ClearData(_getDatabasePath(), ClearPeaksSelected, ClearTrendSelected);
 
         StatusText = "Limpeza concluída.";
     }

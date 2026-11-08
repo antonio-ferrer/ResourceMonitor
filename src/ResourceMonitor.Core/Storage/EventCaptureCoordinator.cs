@@ -3,7 +3,7 @@ using ResourceMonitor.Configuration;
 namespace ResourceMonitor.Storage;
 
 // Guarda capturas pendentes entre o instante em que um alerta dispara (pico conhecido)
-// e o momento em que a janela pós-pico termina de acontecer no cache.
+// e o momento em que a janela pós-pico termina de acontecer (amostras vêm do RecentSamplesBuffer).
 public sealed class EventCaptureCoordinator
 {
     private readonly MonitorSettings _settings;
@@ -23,7 +23,7 @@ public sealed class EventCaptureCoordinator
     }
 
     // Copia pro banco permanente qualquer captura cuja janela pós-pico já tenha se completado.
-    public void FlushReady(DateTimeOffset now, CacheDatabase cache, PermanentDatabase permanent)
+    public void FlushReady(DateTimeOffset now, RecentSamplesBuffer recentSamples, PermanentDatabase permanent)
     {
         for (var i = _pending.Count - 1; i >= 0; i--)
         {
@@ -33,26 +33,26 @@ public sealed class EventCaptureCoordinator
                 continue;
             }
 
-            Capture(capture, cache, permanent);
+            Capture(capture, recentSamples, permanent);
             _pending.RemoveAt(i);
         }
     }
 
-    // Usado no encerramento do app: grava o que estiver disponível no cache pras capturas
+    // Usado no encerramento do app: grava o que estiver disponível no buffer pras capturas
     // ainda pendentes, em vez de perdê-las.
-    public void FlushAll(CacheDatabase cache, PermanentDatabase permanent)
+    public void FlushAll(RecentSamplesBuffer recentSamples, PermanentDatabase permanent)
     {
         foreach (var capture in _pending)
         {
-            Capture(capture, cache, permanent);
+            Capture(capture, recentSamples, permanent);
         }
 
         _pending.Clear();
     }
 
-    private static void Capture(PendingCapture capture, CacheDatabase cache, PermanentDatabase permanent)
+    private static void Capture(PendingCapture capture, RecentSamplesBuffer recentSamples, PermanentDatabase permanent)
     {
-        var samples = cache.GetSamplesInRange(capture.WindowStart, capture.WindowEnd);
+        var samples = recentSamples.GetRange(capture.WindowStart, capture.WindowEnd);
         if (samples.Count > 0)
         {
             permanent.InsertSampleWindow(capture.AlertEventId, samples);

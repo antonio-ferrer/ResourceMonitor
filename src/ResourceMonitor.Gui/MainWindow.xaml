@@ -469,9 +469,6 @@
                             <DockPanel>
                                 <Button DockPanel.Dock="Right" Content="Limpar selecionados" Command="{Binding ClearSelectedCommand}" Padding="12,4" />
                                 <WrapPanel VerticalAlignment="Center">
-                                    <CheckBox Content="Cache (amostras em memória)" IsChecked="{Binding ClearCacheSelected}"
-                                              VerticalAlignment="Center" Margin="0,0,16,0"
-                                              ToolTip="Amostras ao vivo mantidas em memória enquanto o monitoramento roda — não tem arquivo em disco" />
                                     <CheckBox Content="Tendência diária" IsChecked="{Binding ClearTrendSelected}"
                                               VerticalAlignment="Center" Margin="0,0,16,0" />
                                     <CheckBox Content="Base de picos" IsChecked="{Binding ClearPeaksSelected}"

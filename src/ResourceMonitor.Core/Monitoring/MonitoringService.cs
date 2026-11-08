@@ -18,7 +18,6 @@ public sealed class MonitoringService : IDisposable
 
     private CancellationTokenSource? _cts;
     private Task? _loopTask;
-    private CacheDatabase? _cache;
     private volatile bool _stopRequested;
 
     public bool IsRunning => _loopTask is { IsCompleted: false };
@@ -39,16 +38,6 @@ public sealed class MonitoringService : IDisposable
     // iniciar/parar pela bandeja. Também dispara quando o loop para sozinho por falha, já com
     // IsRunning = false.
     public event EventHandler? RunningStateChanged;
-
-    // "Dados correntes": tudo que está no cache volátil agora (a janela de retenção já se
-    // auto-poda, então isso é só um limite superior generoso, não um filtro real).
-    public IReadOnlyList<ResourceSample> GetCurrentSamples() =>
-        (IReadOnlyList<ResourceSample>?)_cache?.GetSamplesInRange(DateTimeOffset.UtcNow.AddHours(-1), DateTimeOffset.UtcNow)
-            ?? Array.Empty<ResourceSample>();
-
-    // Painel "Limpeza" em Configurações — sem efeito se não estiver monitorando (o cache só
-    // existe enquanto o loop roda; parado, já não há nada pra limpar).
-    public void ClearCache() => _cache?.ClearAll();
 
     public void Start(MonitorSettings settings, string dataDirectory)
     {
@@ -111,7 +100,7 @@ public sealed class MonitoringService : IDisposable
         var databasePath = Path.Combine(logDirectory, "resourcemonitor.db");
 
         DiskMonitor? diskMonitor = null;
-        CacheDatabase? cache = null;
+        RecentSamplesBuffer? recentSamples = null;
         PermanentDatabase? permanent = null;
         EventCaptureCoordinator? captureCoordinator = null;
 
@@ -127,18 +116,16 @@ public sealed class MonitoringService : IDisposable
             var sampler = new ResourceSampler(diskMonitor);
             var thresholdMonitor = new ThresholdMonitor(settings);
 
-            cache = new CacheDatabase();
+            // Guarda só o necessário pra janela antes/depois de um pico, com folga de 2 intervalos.
+            recentSamples = new RecentSamplesBuffer(TimeSpan.FromSeconds(
+                settings.PreEventSeconds + settings.PostEventSeconds + (2 * settings.SampleIntervalSeconds)));
             permanent = new PermanentDatabase(databasePath);
-            _cache = cache;
 
             // Corrige alertas deixados abertos por uma execução anterior que não encerrou
             // normalmente (processo morto/kill) — sem isso ficariam "Em andamento" pra sempre.
             permanent.MarkOrphanedAlertsInterrupted();
 
             captureCoordinator = new EventCaptureCoordinator(settings);
-
-            var cachePruneWindow = TimeSpan.FromSeconds(
-                settings.PreEventSeconds + settings.PostEventSeconds + (2 * settings.SampleIntervalSeconds));
 
             using var timer = new PeriodicTimer(TimeSpan.FromSeconds(settings.SampleIntervalSeconds));
 
@@ -160,8 +147,7 @@ public sealed class MonitoringService : IDisposable
                         continue; // amostra de aquecimento
                     }
 
-                    cache.InsertSample(sample);
-                    cache.Prune(sample.Timestamp - cachePruneWindow);
+                    recentSamples.Add(sample);
 
                     SampleCollected?.Invoke(this, sample);
 
@@ -196,7 +182,7 @@ public sealed class MonitoringService : IDisposable
                         permanent.UpdateLastActive(openAlertId, sample.Timestamp);
                     }
 
-                    // Espaço em disco é notificação pontual, não episódio — não toca em cache/permanent.
+                    // Espaço em disco é notificação pontual, não episódio — não grava nada.
                     foreach (var warning in thresholdMonitor.EvaluateDiskFreeSpace(sample))
                     {
                         DiskSpaceLow?.Invoke(this, warning);
@@ -211,7 +197,7 @@ public sealed class MonitoringService : IDisposable
                         lastDailyAggregateSample = sample.Timestamp;
                     }
 
-                    captureCoordinator.FlushReady(sample.Timestamp, cache, permanent);
+                    captureCoordinator.FlushReady(sample.Timestamp, recentSamples, permanent);
                     consecutiveFailures = 0;
                 }
                 catch (Exception ex) when (!token.IsCancellationRequested)
@@ -241,9 +227,9 @@ public sealed class MonitoringService : IDisposable
         {
             try
             {
-                if (cache is not null && permanent is not null)
+                if (recentSamples is not null && permanent is not null)
                 {
-                    captureCoordinator?.FlushAll(cache, permanent);
+                    captureCoordinator?.FlushAll(recentSamples, permanent);
 
                     foreach (var openAlertId in openAlerts.Values)
                     {
@@ -258,9 +244,7 @@ public sealed class MonitoringService : IDisposable
                 ErrorLog.Write("Monitoramento", "Falha ao fechar as capturas no encerramento.", ex);
             }
 
-            _cache = null;
             permanent?.Dispose();
-            cache?.Dispose();
             diskMonitor?.Dispose();
         }
     }

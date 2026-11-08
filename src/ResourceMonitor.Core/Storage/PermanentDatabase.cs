@@ -7,7 +7,7 @@ namespace ResourceMonitor.Storage;
 
 // Base persistente entre execuções. Só recebe dados quando um alerta dispara:
 // o próprio evento, o snapshot de processos, e a janela de amostras em torno do pico
-// (copiada do CacheDatabase pelo EventCaptureCoordinator).
+// (copiada do RecentSamplesBuffer pelo EventCaptureCoordinator).
 public sealed class PermanentDatabase : IDisposable
 {
     private readonly SqliteConnection _connection;
@@ -594,10 +594,9 @@ public sealed class PermanentDatabase : IDisposable
     private static DateTimeOffset ParseTimestamp(string value) =>
         DateTimeOffset.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
 
-    // Limpeza seletiva (painel "Limpeza" na aba Dados) — só deve ser chamada com o
+    // Limpeza seletiva (painel "Limpeza de dados" em Configurações) — só deve ser chamada com o
     // monitoramento parado, abre sua própria conexão e não coordena com uma instância de
-    // PermanentDatabase que porventura já esteja escrevendo. O cache em memória (CacheDatabase)
-    // é uma categoria separada, sem tabela em disco — ver MonitoringService.ClearCache.
+    // PermanentDatabase que porventura já esteja escrevendo.
     public static void ClearData(string databasePath, bool clearPeaks, bool clearTrend)
     {
         if (!File.Exists(databasePath) || (!clearPeaks && !clearTrend))
