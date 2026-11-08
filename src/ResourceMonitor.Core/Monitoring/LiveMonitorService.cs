@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using ResourceMonitor.Diagnostics;
 using ResourceMonitor.Sampling;
 
 namespace ResourceMonitor.Monitoring;
@@ -29,6 +30,7 @@ public sealed class LiveMonitorService : IDisposable
 
     private long _sequence;
     private int _consumerCount;
+    private bool _lastTickFailed;
     private CancellationTokenSource? _loopCts;
 
     public event EventHandler<LiveSnapshot>? SnapshotUpdated;
@@ -98,11 +100,19 @@ public sealed class LiveMonitorService : IDisposable
             try
             {
                 Tick();
+                _lastTickFailed = false;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
                 // Tick com falha é só pulado — o próximo tenta de novo. Exceção não tratada aqui
-                // (thread de pool) derrubaria o app inteiro.
+                // (thread de pool) derrubaria o app inteiro. Loga só a primeira de uma sequência,
+                // pra uma falha repetida a cada segundo não empurrar o resto do log pra fora.
+                if (!_lastTickFailed)
+                {
+                    ErrorLog.Write("MonitorAoVivo", "Falha num ciclo do monitor ao vivo (pulado).", ex);
+                }
+
+                _lastTickFailed = true;
             }
         }
     }

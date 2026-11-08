@@ -1,5 +1,6 @@
 using ResourceMonitor.Alerting;
 using ResourceMonitor.Configuration;
+using ResourceMonitor.Diagnostics;
 using ResourceMonitor.Instancing;
 using ResourceMonitor.Monitoring;
 
@@ -13,8 +14,9 @@ if (!singleInstanceGuard.IsPrimaryInstance)
     return;
 }
 
-var settings = AppSettingsStore.Load();
 var dataDirectory = AppSettingsStore.GetDataDirectory();
+ErrorLog.Initialize(Path.Combine(dataDirectory, "logs"));
+var settings = AppSettingsStore.Load();
 
 using var monitoringService = new MonitoringService();
 

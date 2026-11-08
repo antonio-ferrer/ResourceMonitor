@@ -45,6 +45,16 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
+        ErrorLog.Initialize(Path.Combine(DataDirectory, "logs"));
+        DispatcherUnhandledException += OnDispatcherUnhandledException;
+        AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+            ErrorLog.Write("App", "Erro fatal não tratado, o app vai fechar.", args.ExceptionObject as Exception);
+        TaskScheduler.UnobservedTaskException += (_, args) =>
+        {
+            ErrorLog.Write("App", "Exceção numa tarefa em segundo plano.", args.Exception);
+            args.SetObserved();
+        };
+
         _singleInstanceGuard = new SingleInstanceGuard();
         if (!_singleInstanceGuard.IsPrimaryInstance)
         {
@@ -139,6 +149,36 @@ public partial class App : Application
         _notifyIcon.DoubleClick += (_, _) => ShowMainWindow();
 
         TrayNotifier = new TrayNotifier(_notifyIcon);
+    }
+
+    private bool _isShowingErrorDialog;
+
+    // Erro não tratado na thread de UI: registra, avisa e mantém o app aberto — fechar aqui
+    // derrubaria também o monitoramento que roda na bandeja. Um aviso por vez, pra um erro
+    // repetido não empilhar janelas.
+    private void OnDispatcherUnhandledException(object sender, System.Windows.Threading.DispatcherUnhandledExceptionEventArgs e)
+    {
+        ErrorLog.Write("App", "Erro não tratado na interface.", e.Exception);
+        e.Handled = true;
+
+        if (_isShowingErrorDialog)
+        {
+            return;
+        }
+
+        _isShowingErrorDialog = true;
+        try
+        {
+            System.Windows.MessageBox.Show(
+                $"Ocorreu um erro inesperado: {e.Exception.Message}\n\nO ResourceMonitor continua rodando. Detalhes em:\n{ErrorLog.FilePath}",
+                "ResourceMonitor",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
+        finally
+        {
+            _isShowingErrorDialog = false;
+        }
     }
 
     private Task<CoreWebView2Environment>? _webViewEnvironment;

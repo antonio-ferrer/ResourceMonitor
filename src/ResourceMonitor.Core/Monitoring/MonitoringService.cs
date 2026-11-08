@@ -1,5 +1,6 @@
 using ResourceMonitor.Alerting;
 using ResourceMonitor.Configuration;
+using ResourceMonitor.Diagnostics;
 using ResourceMonitor.Sampling;
 using ResourceMonitor.Storage;
 
@@ -221,6 +222,7 @@ public sealed class MonitoringService : IDisposable
                         throw;
                     }
 
+                    ErrorLog.Write("Monitoramento", $"Falha num ciclo de amostragem ({consecutiveFailures} seguida(s)), tentando de novo.", ex);
                     TickFailed?.Invoke(this, ex);
                 }
             }
@@ -232,6 +234,7 @@ public sealed class MonitoringService : IDisposable
         }
         catch (Exception ex)
         {
+            ErrorLog.Write("Monitoramento", "Monitoramento parado por erro.", ex);
             Faulted?.Invoke(this, ex);
         }
         finally
@@ -248,10 +251,11 @@ public sealed class MonitoringService : IDisposable
                     }
                 }
             }
-            catch (Exception)
+            catch (Exception ex)
             {
                 // Banco indisponível no encerramento: os alertas abertos ficam como órfãos e
                 // são corrigidos no próximo Start (MarkOrphanedAlertsInterrupted).
+                ErrorLog.Write("Monitoramento", "Falha ao fechar as capturas no encerramento.", ex);
             }
 
             _cache = null;
