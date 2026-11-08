@@ -52,7 +52,7 @@ public partial class MainWindow : Window
             Title += " - modo depuração";
         }
 
-        _homeViewModel = new HomeViewModel(app.MonitoringService, app.Settings, app.LiveMonitor);
+        _homeViewModel = new HomeViewModel(app.MonitoringService, () => app.Settings, app.LiveMonitor);
         _monitoringViewModel = new MonitoringViewModel(app.MonitoringService, app.Settings, app.DataDirectory, app.TrayNotifier, GetDatabasePath);
         _templatesViewModel = new TemplatesViewModel(GetDatabasePath, app.TemplateQueries);
         _chartViewModel = new ChartViewModel(app.LiveMonitor, GetDatabasePath, app.AlertEventQueries);
@@ -82,6 +82,8 @@ public partial class MainWindow : Window
         _chartViewModel.LoadDailyTrendCommand.Execute(null);
 
         Loaded += OnLoaded;
+        IsVisibleChanged += (_, _) => UpdateLiveConsumer();
+        StateChanged += (_, _) => UpdateLiveConsumer();
 
         ShowSection(HomeTabRoot, MenuHome);
     }
@@ -140,9 +142,7 @@ public partial class MainWindow : Window
 
     // Esconde todos os roots de conteúdo e mostra só o passado; marca qual item do menu
     // principal fica destacado (Tag="Active", ver MainMenuItemStyle em MainWindow.xaml).
-    // Também liga/desliga o LiveMonitorService: só Home e Gráficos mostram o gráfico ao vivo,
-    // então só incrementa/decrementa o contador de consumidores quando a troca realmente
-    // entra ou sai de uma dessas duas seções (ver LiveMonitorService.AddConsumer/RemoveConsumer).
+    // Também liga/desliga o monitor ao vivo (ver UpdateLiveConsumer).
     private void ShowSection(UIElement section, MenuItem activeMenuItem)
     {
         foreach (var candidate in new UIElement[]
@@ -159,24 +159,47 @@ public partial class MainWindow : Window
             item.Tag = ReferenceEquals(item, activeMenuItem) ? "Active" : null;
         }
 
-        var wasLiveConsumer = IsLiveConsumingSection(_currentSection);
-        var isLiveConsumer = IsLiveConsumingSection(section);
-        if (wasLiveConsumer && !isLiveConsumer)
-        {
-            ((App)Application.Current).LiveMonitor.RemoveConsumer();
-        }
-        else if (!wasLiveConsumer && isLiveConsumer)
-        {
-            ((App)Application.Current).LiveMonitor.AddConsumer();
-        }
-
         _currentSection = section;
+        UpdateLiveConsumer();
+
+        if (ReferenceEquals(section, HomeTabRoot))
+        {
+            _homeViewModel.RefreshConfigSummary();
+        }
     }
 
     // Só Home e Gráficos > Dados Correntes mostram o gráfico ao vivo — Tendência e Eventos de
     // Picos são sob demanda (botão Carregar), não precisam do LiveMonitorService rodando.
     private bool IsLiveConsumingSection(UIElement? section) =>
         ReferenceEquals(section, HomeTabRoot) || ReferenceEquals(section, ChartLiveTabRoot);
+
+    private bool _isLiveConsumer;
+
+    // O monitor ao vivo (varredura de processos a cada 1s) só roda com alguém olhando: janela
+    // visível, não minimizada, numa seção com gráfico ao vivo. Fechar a janela só a esconde na
+    // bandeja (ver OnClosing) — sem isso a varredura seguia rodando pra sempre ali.
+    private void UpdateLiveConsumer()
+    {
+        var shouldConsume = IsVisible
+            && WindowState != WindowState.Minimized
+            && IsLiveConsumingSection(_currentSection);
+
+        if (shouldConsume == _isLiveConsumer)
+        {
+            return;
+        }
+
+        _isLiveConsumer = shouldConsume;
+        var liveMonitor = ((App)Application.Current).LiveMonitor;
+        if (shouldConsume)
+        {
+            liveMonitor.AddConsumer();
+        }
+        else
+        {
+            liveMonitor.RemoveConsumer();
+        }
+    }
 
     private void OnMenuHomeClick(object sender, RoutedEventArgs e) => ShowSection(HomeTabRoot, MenuHome);
 

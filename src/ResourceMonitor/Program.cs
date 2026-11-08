@@ -53,9 +53,18 @@ monitoringService.DiskSpaceLow += (_, warning) =>
         $"({warning.FreePercent:F1}% livre, mínimo {warning.MinFreePercent:F1}%)");
 };
 
+monitoringService.TickFailed += (_, ex) =>
+{
+    Console.Error.WriteLine($"  >> Aviso: falha num ciclo de amostragem, tentando de novo ({ex.Message})");
+};
+
+// O loop desistiu: encerra o processo com código de erro em vez de ficar parado esperando
+// um Ctrl+C sem estar monitorando nada.
 monitoringService.Faulted += (_, ex) =>
 {
-    Console.Error.WriteLine($"Erro no monitoramento: {ex}");
+    Console.Error.WriteLine($"Erro no monitoramento, encerrando: {ex}");
+    Environment.ExitCode = 1;
+    stopSignal.TrySetResult();
 };
 
 Console.WriteLine("ResourceMonitor iniciado. Ctrl+C para encerrar.");

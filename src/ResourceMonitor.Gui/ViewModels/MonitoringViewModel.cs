@@ -21,6 +21,7 @@ public partial class MonitoringViewModel : ObservableObject
     private readonly string _dataDirectory;
     private readonly ITrayNotifier _trayNotifier;
     private readonly Func<string> _getDatabasePath;
+    private string? _lastFaultMessage;
 
     [ObservableProperty] private int sampleIntervalSeconds;
     [ObservableProperty] private int consecutiveBreachesToAlert;
@@ -72,6 +73,7 @@ public partial class MonitoringViewModel : ObservableObject
         _monitoringService.SampleCollected += OnSampleCollected;
         _monitoringService.AlertRaised += OnAlertRaised;
         _monitoringService.DiskSpaceLow += OnDiskSpaceLow;
+        _monitoringService.TickFailed += OnTickFailed;
         _monitoringService.Faulted += OnFaulted;
         _monitoringService.RunningStateChanged += OnRunningStateChanged;
     }
@@ -227,12 +229,24 @@ public partial class MonitoringViewModel : ObservableObject
 
     // Fonte única de verdade pro estado Iniciar/Parar da janela — dispara independente de
     // quem iniciou/parou o monitoramento (esse botão, o menu da bandeja, ou --minimized).
+    // Quando o loop para sozinho por falha, OnFaulted chega antes: guarda a mensagem pra ela
+    // não ser trocada por um "Parado." genérico.
     private void OnRunningStateChanged(object? sender, EventArgs e)
     {
         Application.Current.Dispatcher.Invoke(() =>
         {
-            SetRunning(_monitoringService.IsRunning);
-            StatusText = _monitoringService.IsRunning ? "Monitorando..." : "Parado.";
+            var isRunning = _monitoringService.IsRunning;
+            SetRunning(isRunning);
+
+            if (isRunning)
+            {
+                _lastFaultMessage = null;
+                StatusText = "Monitorando...";
+            }
+            else
+            {
+                StatusText = _lastFaultMessage is { } message ? $"Parado por erro: {message}" : "Parado.";
+            }
         });
     }
 
@@ -288,10 +302,19 @@ public partial class MonitoringViewModel : ObservableObject
         StatusText = "Limpeza concluída.";
     }
 
+    private void OnTickFailed(object? sender, Exception ex)
+    {
+        Application.Current.Dispatcher.Invoke(() =>
+        {
+            StatusText = $"Aviso: falha temporária na amostragem ({ex.Message}) — tentando de novo.";
+        });
+    }
+
     private void OnFaulted(object? sender, Exception ex)
     {
         Application.Current.Dispatcher.Invoke(() =>
         {
+            _lastFaultMessage = ex.Message;
             StatusText = $"Erro: {ex.Message}";
             SetRunning(false);
         });

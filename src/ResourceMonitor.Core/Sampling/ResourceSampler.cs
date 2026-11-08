@@ -1,5 +1,3 @@
-using System.Diagnostics;
-using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 
 namespace ResourceMonitor.Sampling;
@@ -13,8 +11,9 @@ public sealed record GroupedProcessUsage(string Name, int InstanceCount, double 
 public sealed class ResourceSampler
 {
     private readonly DiskMonitor _diskMonitor;
-    private readonly Dictionary<int, TimeSpan> _lastCpuTimes = new();
-    private readonly Dictionary<int, ulong> _lastIoBytes = new();
+    private readonly SystemProcessSnapshot _processSnapshot = new();
+    private Dictionary<int, ProcessCounters> _lastCounters = new();
+    private Dictionary<int, int> _lastParentOf = new();
     private IReadOnlyList<ProcessUsage> _lastAllProcessUsages = Array.Empty<ProcessUsage>();
 
     private SystemMetricsReader.CpuTimesSnapshot? _lastSystemCpuTimes;
@@ -95,19 +94,14 @@ public sealed class ResourceSampler
 
     // Mesma ideia, mas somando por nome antes de ranquear — apps tipo Electron/Chromium sobem
     // vários processos com o mesmo nome (main, renderer, GPU...), o que faria o mesmo app
-    // ocupar sozinho várias posições do top-N. Além disso, processos "carona" (ex: o
-    // msedgewebview2 que o próprio ResourceMonitor sobe pros gráficos embutidos) sobem a
-    // cadeia de pais com o MESMO nome até achar o primeiro ancestral de nome diferente, e são
-    // contabilizados nele — assim "msedgewebview2 → msedgewebview2 → ResourceMonitor.Gui" vira
-    // só "ResourceMonitor.Gui", sem misturar apps que só coincidem em ter o Explorer como
-    // ancestral comum (aí o nome do pai já difere logo no primeiro passo, então não sobe).
-    // Só usada pro monitor ao vivo (LiveMonitorService); o snapshot gravado no alerta
-    // (GetTopProcesses acima) continua por PID — lá o detalhe de qual processo específico
-    // importa pra investigação.
+    // ocupar sozinho várias posições do top-N. Cada processo conta no próprio nome; a exceção
+    // são os hospedeiros de conteúdo embutido (ver EmbeddedHostNames), contabilizados no app
+    // que os abriu. Só usada pro monitor ao vivo (LiveMonitorService); o snapshot gravado no
+    // alerta (GetTopProcesses acima) continua por PID — lá o detalhe de qual processo
+    // específico importa pra investigação.
     public (IReadOnlyList<GroupedProcessUsage> TopByCpu, IReadOnlyList<GroupedProcessUsage> TopByRam, IReadOnlyList<GroupedProcessUsage> TopByIo)
         GetTopProcessesGrouped(int topN)
     {
-        var parentOf = ProcessTree.GetParentProcessIds();
         var nameOf = new Dictionary<int, string>();
         foreach (var usage in _lastAllProcessUsages)
         {
@@ -115,7 +109,7 @@ public sealed class ResourceSampler
         }
 
         var grouped = _lastAllProcessUsages
-            .GroupBy(u => ResolveAttributionName(u, parentOf, nameOf), StringComparer.OrdinalIgnoreCase)
+            .GroupBy(u => ResolveAttributionName(u, _lastParentOf, nameOf), StringComparer.OrdinalIgnoreCase)
             .Select(g => new GroupedProcessUsage(
                 g.Key,
                 g.Count(),
@@ -130,13 +124,28 @@ public sealed class ResourceSampler
             grouped.OrderByDescending(u => u.IoKbPerSec).Take(topN).ToList());
     }
 
-    // Sobe a cadeia de pais enquanto o nome do pai for igual ao do processo original —
-    // pra no primeiro pai de nome diferente. Se a cadeia nunca muda de nome (ou o pai não é
-    // resolvível), mantém o nome original — equivale a não subir nada.
+    // Processos "carona": sobem como filhos de outro app pra renderizar conteúdo embutido (o
+    // WebView2 dos gráficos do próprio ResourceMonitor, do Teams, do Outlook novo...). Esses são
+    // atribuídos ao app dono — qualquer outro processo fica com o próprio nome, senão tudo que
+    // o Explorer abre (Chrome, VS Code...) viraria "explorer".
+    private static readonly HashSet<string> EmbeddedHostNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "msedgewebview2",
+    };
+
+    // Pra um hospedeiro embutido, sobe a cadeia de pais de mesmo nome
+    // ("msedgewebview2 → msedgewebview2 → ResourceMonitor.Gui") e devolve o primeiro ancestral
+    // de nome diferente. Se a cadeia nunca muda de nome (ou o pai não é resolvível), mantém o
+    // nome original.
     private const int MaxAncestorDepth = 32;
 
     private static string ResolveAttributionName(ProcessUsage usage, Dictionary<int, int> parentOf, Dictionary<int, string> nameOf)
     {
+        if (!EmbeddedHostNames.Contains(usage.Name))
+        {
+            return usage.Name;
+        }
+
         var currentId = usage.Id;
         for (var depth = 0; depth < MaxAncestorDepth; depth++)
         {
@@ -156,87 +165,65 @@ public sealed class ResourceSampler
         return usage.Name;
     }
 
-    // Uma única enumeração de todo processo por tick, reaproveitada pra duas coisas: somar
-    // CPU/RAM de quem bate os padrões de exclusão (pro cálculo de uso "líquido") e manter
-    // _lastAllProcessUsages atualizado (pra servir GetTopProcesses sem nova varredura). Antes,
-    // cada uma dessas coisas tinha seu próprio código — a exclusão aqui, o top-processos com
-    // varredura dedicada de 500ms em ProcessSnapshotter.CaptureAsync.
+    // Uma única enumeração de todo processo por tick (ver SystemProcessSnapshot), reaproveitada
+    // pra duas coisas: somar CPU/RAM de quem bate os padrões de exclusão (pro cálculo de uso
+    // "líquido") e manter _lastAllProcessUsages atualizado (pra servir GetTopProcesses e
+    // GetTopProcessesGrouped sem nova varredura).
     private (double CpuSeconds, long RamBytes) WalkProcesses(IReadOnlyList<string> excludedPatterns, double? elapsedSeconds)
     {
         double excludedCpuSeconds = 0;
         long excludedRamBytes = 0;
-        var currentPids = new HashSet<int>();
-        var usages = new List<ProcessUsage>();
 
-        foreach (var process in Process.GetProcesses())
+        var entries = _processSnapshot.Read();
+        var counters = new Dictionary<int, ProcessCounters>(entries.Count);
+        var parentOf = new Dictionary<int, int>(entries.Count);
+        var usages = new List<ProcessUsage>(entries.Count);
+        var seconds = elapsedSeconds is { } elapsed && elapsed > 0 ? elapsed : (double?)null;
+
+        foreach (var entry in entries)
         {
-            try
+            if (entry.Pid == 0)
             {
-                currentPids.Add(process.Id);
+                continue; // "Idle": tempo ocioso da CPU, não um processo de verdade
+            }
 
-                var cpuTime = process.TotalProcessorTime;
-                var ramBytes = process.WorkingSet64;
-                var isExcluded = excludedPatterns.Count > 0 && MatchesAnyPattern(process.ProcessName, excludedPatterns);
+            counters[entry.Pid] = new ProcessCounters(entry.CreateTime, entry.CpuTicks, entry.IoBytes);
+            parentOf[entry.Pid] = entry.ParentPid;
 
-                double cpuPercent = 0;
-                double ioKbPerSec = 0;
+            var isExcluded = excludedPatterns.Count > 0 && MatchesAnyPattern(entry.Name, excludedPatterns);
 
-                if (elapsedSeconds is { } seconds && seconds > 0)
-                {
-                    if (_lastCpuTimes.TryGetValue(process.Id, out var previousCpuTime))
-                    {
-                        var cpuDeltaSeconds = Math.Max(0, (cpuTime - previousCpuTime).TotalSeconds);
-                        cpuPercent = Math.Clamp(cpuDeltaSeconds / (seconds * Environment.ProcessorCount) * 100.0, 0, 100);
-                        if (isExcluded)
-                        {
-                            excludedCpuSeconds += cpuDeltaSeconds;
-                        }
-                    }
+            double cpuPercent = 0;
+            double ioKbPerSec = 0;
 
-                    // Leitura de I/O por processo não é exposta pelo Process do .NET — via
-                    // P/Invoke de GetProcessIoCounters (kernel32), mesmo padrão de delta da CPU.
-                    if (GetProcessIoCounters(process.Handle, out var counters))
-                    {
-                        var ioBytes = counters.ReadTransferCount + counters.WriteTransferCount;
-                        if (_lastIoBytes.TryGetValue(process.Id, out var previousIoBytes))
-                        {
-                            var ioBytesDelta = Math.Max(0, (long)(ioBytes - previousIoBytes));
-                            ioKbPerSec = ioBytesDelta / seconds / 1024.0;
-                        }
-
-                        _lastIoBytes[process.Id] = ioBytes;
-                    }
-                }
-
-                _lastCpuTimes[process.Id] = cpuTime;
-
+            // Delta só contra o MESMO processo (PID + horário de criação): um PID reaproveitado
+            // por outro processo entre dois ticks não vira um delta sem sentido.
+            if (seconds is { } s
+                && _lastCounters.TryGetValue(entry.Pid, out var previous)
+                && previous.CreateTime == entry.CreateTime)
+            {
+                var cpuDeltaSeconds = Math.Max(0, entry.CpuTicks - previous.CpuTicks) / (double)TimeSpan.TicksPerSecond;
+                cpuPercent = Math.Clamp(cpuDeltaSeconds / (s * Environment.ProcessorCount) * 100.0, 0, 100);
                 if (isExcluded)
                 {
-                    excludedRamBytes += ramBytes;
+                    excludedCpuSeconds += cpuDeltaSeconds;
                 }
 
-                usages.Add(new ProcessUsage(process.ProcessName, process.Id, cpuPercent, ramBytes / 1024.0 / 1024.0, ioKbPerSec));
+                var ioBytesDelta = entry.IoBytes >= previous.IoBytes ? entry.IoBytes - previous.IoBytes : 0;
+                ioKbPerSec = ioBytesDelta / s / 1024.0;
             }
-            catch (Exception)
+
+            if (isExcluded)
             {
-                // processo pode ter terminado ou negado acesso durante a leitura; ignora.
+                excludedRamBytes += entry.WorkingSetBytes;
             }
-            finally
-            {
-                process.Dispose();
-            }
+
+            usages.Add(new ProcessUsage(entry.Name, entry.Pid, cpuPercent, entry.WorkingSetBytes / 1024.0 / 1024.0, ioKbPerSec));
         }
 
-        foreach (var pid in _lastCpuTimes.Keys.Except(currentPids).ToList())
-        {
-            _lastCpuTimes.Remove(pid);
-        }
-
-        foreach (var pid in _lastIoBytes.Keys.Except(currentPids).ToList())
-        {
-            _lastIoBytes.Remove(pid);
-        }
-
+        // Troca as referências em vez de remover entradas antigas — processo que sumiu
+        // simplesmente não está no dicionário novo.
+        _lastCounters = counters;
+        _lastParentOf = parentOf;
         _lastAllProcessUsages = usages;
 
         return (excludedCpuSeconds, excludedRamBytes);
@@ -261,18 +248,5 @@ public sealed class ResourceSampler
         return Regex.IsMatch(input, regexPattern, RegexOptions.IgnoreCase);
     }
 
-    [StructLayout(LayoutKind.Sequential)]
-    private struct IoCounters
-    {
-        public ulong ReadOperationCount;
-        public ulong WriteOperationCount;
-        public ulong OtherOperationCount;
-        public ulong ReadTransferCount;
-        public ulong WriteTransferCount;
-        public ulong OtherTransferCount;
-    }
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool GetProcessIoCounters(IntPtr processHandle, out IoCounters counters);
+    private readonly record struct ProcessCounters(long CreateTime, long CpuTicks, ulong IoBytes);
 }

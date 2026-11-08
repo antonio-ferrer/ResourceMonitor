@@ -13,7 +13,10 @@ namespace ResourceMonitor.Gui.ViewModels;
 public partial class HomeViewModel : ObservableObject
 {
     private readonly MonitoringService _monitoringService;
-    private readonly MonitorSettings _settings;
+
+    // Lido a cada atualização, não guardado: Configurações > Salvar troca o objeto inteiro em
+    // App.Settings, e uma referência capturada no construtor ficaria mostrando o antigo.
+    private readonly Func<MonitorSettings> _getSettings;
 
     [ObservableProperty] private HardwareInfo hardware = HardwareInfoReader.Capture();
 
@@ -36,13 +39,16 @@ public partial class HomeViewModel : ObservableObject
 
     public event EventHandler<string>? LiveSamplesReady;
 
-    public HomeViewModel(MonitoringService monitoringService, MonitorSettings settings, LiveMonitorService liveMonitor)
+    public HomeViewModel(MonitoringService monitoringService, Func<MonitorSettings> getSettings, LiveMonitorService liveMonitor)
     {
         _monitoringService = monitoringService;
-        _settings = settings;
+        _getSettings = getSettings;
 
         liveMonitor.SnapshotUpdated += OnLiveSnapshotUpdated;
-        _monitoringService.RunningStateChanged += (_, _) => RefreshConfigSummary();
+
+        // Pode disparar da thread do loop de monitoramento (quando ele para sozinho por falha).
+        _monitoringService.RunningStateChanged += (_, _) =>
+            System.Windows.Application.Current.Dispatcher.InvokeAsync(RefreshConfigSummary);
 
         RefreshConfigSummary();
 
@@ -74,23 +80,28 @@ public partial class HomeViewModel : ObservableObject
         RefreshConfigSummary();
     }
 
-    private void RefreshConfigSummary()
+    // Chamado também toda vez que a Home é mostrada (MainWindow.ShowSection) — cobre mudanças
+    // feitas em Configurações (Salvar, "Iniciar com o Windows") sem precisar de evento próprio.
+    public void RefreshConfigSummary()
     {
+        var settings = _getSettings();
+
         MonitoringActive = _monitoringService.IsRunning;
         StartWithWindowsActive = AutoStartManager.IsEnabled();
-        ExcludedProcessesActive = _settings.ExcludedProcesses.Count > 0;
-        CustomDiskThresholdsActive = _settings.Thresholds.DiskFreeThresholds
+        ExcludedProcessesActive = settings.ExcludedProcesses.Count > 0;
+        CustomDiskThresholdsActive = settings.Thresholds.DiskFreeThresholds
             .Any(t => Math.Abs(t.MinFreePercent - DiskThreshold.DefaultMinFreePercent) > 0.01);
 
-        ThresholdsSummary = $"{_settings.Thresholds.CpuPercent:N0}% · {_settings.Thresholds.RamPercent:N0}% · {_settings.Thresholds.DiskIoPercent:N0}%";
-        SampleIntervalSummary = $"{_settings.SampleIntervalSeconds}s";
+        ThresholdsSummary = $"{settings.Thresholds.CpuPercent:N0}% · {settings.Thresholds.RamPercent:N0}% · {settings.Thresholds.DiskIoPercent:N0}%";
+        SampleIntervalSummary = $"{settings.SampleIntervalSeconds}s";
     }
 
+    // InvokeAsync (não Invoke): o tick do monitor ao vivo não fica preso esperando a UI.
     private void OnLiveSnapshotUpdated(object? sender, LiveSnapshot snapshot)
     {
         var json = ChartJsonFormatter.ToChartJson(snapshot.Samples);
 
-        System.Windows.Application.Current.Dispatcher.Invoke(() =>
+        System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
         {
             ReplaceAll(TopByCpu, snapshot.TopByCpu);
             ReplaceAll(TopByRam, snapshot.TopByRam);

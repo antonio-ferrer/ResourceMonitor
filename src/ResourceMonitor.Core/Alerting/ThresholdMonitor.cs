@@ -28,9 +28,12 @@ public sealed class ThresholdMonitor
         EvaluateMetric(events, "RAM", null, sample.RamRawPercent, sample.RamAdjustedPercent,
             _settings.Thresholds.RamPercent, isAboveThreshold: true, sample.Timestamp);
 
-        foreach (var disk in sample.Disks)
+        // O I/O vem do contador agregado "_Total" (ver DiskMonitor), igual pra todas as unidades:
+        // avaliado uma vez só, sem unidade — avaliar por disco transformava cada pico em N
+        // episódios idênticos, um por unidade fixa.
+        if (sample.Disks.Count > 0)
         {
-            EvaluateMetric(events, "DiscoIO", disk.DriveName, disk.IoPercent, null,
+            EvaluateMetric(events, "DiscoIO", null, sample.Disks.Max(d => d.IoPercent), null,
                 _settings.Thresholds.DiskIoPercent, isAboveThreshold: true, sample.Timestamp);
         }
 

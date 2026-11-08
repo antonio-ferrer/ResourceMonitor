@@ -11,7 +11,7 @@ public sealed record LiveSnapshot(
 
 // Monitor "ao vivo" totalmente separado de MonitoringService: roda independente de
 // Iniciar/Parar, amostra a cada 1s, guarda só em memória (nunca grava em cache/banco).
-// Compartilhado entre telas (Home, Gráficos) via contagem de consumidores — o timer só roda
+// Compartilhado entre telas (Home, Gráficos) via contagem de consumidores — o loop só roda
 // enquanto pelo menos uma tela estiver mostrando o gráfico.
 public sealed class LiveMonitorService : IDisposable
 {
@@ -19,19 +19,30 @@ public sealed class LiveMonitorService : IDisposable
     private const int TopProcessCount = 5;
     private static readonly TimeSpan TickInterval = TimeSpan.FromSeconds(1);
 
-    private readonly ResourceSampler _sampler = new(new DiskMonitor());
+    private readonly DiskMonitor _diskMonitor = new();
+    private readonly ResourceSampler _sampler;
     private readonly ConcurrentDictionary<long, ResourceSample> _samples = new();
+
+    // ResourceSampler não é thread-safe: o lock garante um tick por vez, inclusive quando um
+    // Stop+Start rápido deixa o loop antigo terminando o tick dele enquanto o novo começa.
+    private readonly object _tickLock = new();
+
     private long _sequence;
     private int _consumerCount;
-    private Timer? _timer;
+    private CancellationTokenSource? _loopCts;
 
     public event EventHandler<LiveSnapshot>? SnapshotUpdated;
+
+    public LiveMonitorService()
+    {
+        _sampler = new ResourceSampler(_diskMonitor);
+    }
 
     public void AddConsumer()
     {
         if (Interlocked.Increment(ref _consumerCount) == 1)
         {
-            StartTimer();
+            StartLoop();
         }
     }
 
@@ -39,20 +50,61 @@ public sealed class LiveMonitorService : IDisposable
     {
         if (Interlocked.Decrement(ref _consumerCount) == 0)
         {
-            StopTimer();
+            StopLoop();
         }
     }
 
-    private void StartTimer()
+    // PeriodicTimer não sobrepõe ticks (o próximo só começa depois que o anterior terminou),
+    // ao contrário do System.Threading.Timer periódico usado antes.
+    private void StartLoop()
     {
-        _timer = new Timer(_ => Tick(), null, TimeSpan.Zero, TickInterval);
+        _loopCts = new CancellationTokenSource();
+        var token = _loopCts.Token;
+        Task.Run(async () =>
+        {
+            using var timer = new PeriodicTimer(TickInterval);
+            try
+            {
+                do
+                {
+                    TickSafely(token);
+                }
+                while (await timer.WaitForNextTickAsync(token));
+            }
+            catch (OperationCanceledException)
+            {
+                // StopLoop
+            }
+        });
     }
 
-    private void StopTimer()
+    private void StopLoop()
     {
-        _timer?.Dispose();
-        _timer = null;
+        _loopCts?.Cancel();
+        _loopCts?.Dispose();
+        _loopCts = null;
         _samples.Clear(); // efêmero — nada sobrevive fora da janela sendo observada
+    }
+
+    private void TickSafely(CancellationToken token)
+    {
+        lock (_tickLock)
+        {
+            if (token.IsCancellationRequested)
+            {
+                return; // parado enquanto esperava o lock
+            }
+
+            try
+            {
+                Tick();
+            }
+            catch (Exception)
+            {
+                // Tick com falha é só pulado — o próximo tenta de novo. Exceção não tratada aqui
+                // (thread de pool) derrubaria o app inteiro.
+            }
+        }
     }
 
     private void Tick()
@@ -86,6 +138,10 @@ public sealed class LiveMonitorService : IDisposable
 
     public void Dispose()
     {
-        StopTimer();
+        StopLoop();
+        lock (_tickLock)
+        {
+            _diskMonitor.Dispose();
+        }
     }
 }

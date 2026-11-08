@@ -12,20 +12,36 @@ public sealed class PermanentDatabase : IDisposable
 {
     private readonly SqliteConnection _connection;
 
+    // Caminhos (normalizados) cujo schema já foi conferido neste processo — ver EnsureSchema.
+    private static readonly HashSet<string> SchemaEnsuredPaths = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly object SchemaEnsuredLock = new();
+
     public PermanentDatabase(string databaseFilePath)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(databaseFilePath)!);
         _connection = new SqliteConnection($"Data Source={databaseFilePath}");
         _connection.Open();
+        TryEnableWal(_connection);
+
+        // Com WAL, NORMAL não arrisca corromper o banco numa queda de energia (no máximo perde
+        // as últimas transações) e evita um fsync a cada gravação do loop.
+        using (var pragma = _connection.CreateCommand())
+        {
+            pragma.CommandText = "PRAGMA synchronous=NORMAL;";
+            pragma.ExecuteNonQuery();
+        }
+
         ApplySchema(_connection);
         SeedOrUpdateBuiltInTemplates(_connection);
+        MarkSchemaEnsured(databaseFilePath);
     }
 
-    // Chamado pelo lado de leitura (AlertEventQueries) antes de abrir sua própria conexão
-    // somente-leitura: garante que um banco criado por uma versão antiga do app (antes de
-    // colunas como LastActiveUtc/Interrupted existirem) já esteja migrado, sem depender de
-    // que o usuário tenha clicado em "Iniciar" nessa execução (o que criaria um PermanentDatabase
-    // e migraria de qualquer forma).
+    // Chamado pelo lado de leitura (AlertEventQueries, TemplateQueries) antes de abrir sua
+    // própria conexão somente-leitura: garante que um banco criado por uma versão antiga do app
+    // (antes de colunas como LastActiveUtc/Interrupted existirem) já esteja migrado, sem depender
+    // de que o usuário tenha clicado em "Iniciar" nessa execução. Roda uma vez por processo:
+    // antes rodava em toda consulta, abrindo uma conexão de escrita a cada clique e competindo
+    // com o loop de monitoramento pelo banco.
     public static void EnsureSchema(string databaseFilePath)
     {
         if (!File.Exists(databaseFilePath))
@@ -33,10 +49,47 @@ public sealed class PermanentDatabase : IDisposable
             return;
         }
 
-        using var connection = new SqliteConnection($"Data Source={databaseFilePath}");
-        connection.Open();
-        ApplySchema(connection);
-        SeedOrUpdateBuiltInTemplates(connection);
+        var normalizedPath = Path.GetFullPath(databaseFilePath);
+        lock (SchemaEnsuredLock)
+        {
+            if (SchemaEnsuredPaths.Contains(normalizedPath))
+            {
+                return;
+            }
+
+            using var connection = new SqliteConnection($"Data Source={databaseFilePath}");
+            connection.Open();
+            TryEnableWal(connection);
+            ApplySchema(connection);
+            SeedOrUpdateBuiltInTemplates(connection);
+            SchemaEnsuredPaths.Add(normalizedPath);
+        }
+    }
+
+    private static void MarkSchemaEnsured(string databaseFilePath)
+    {
+        lock (SchemaEnsuredLock)
+        {
+            SchemaEnsuredPaths.Add(Path.GetFullPath(databaseFilePath));
+        }
+    }
+
+    // WAL: leitores (GUI, Templates) não bloqueiam a gravação do loop de monitoramento, e vice-
+    // versa — no modo padrão (rollback journal) uma consulta longa podia segurar o gravador até
+    // estourar o timeout. O modo fica gravado no próprio arquivo, então basta aplicar uma vez;
+    // se outro processo estiver com o banco aberto nesse instante a troca pode ser recusada, e
+    // aí fica pra próxima abertura.
+    private static void TryEnableWal(SqliteConnection connection)
+    {
+        try
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = "PRAGMA journal_mode=WAL;";
+            command.ExecuteScalar();
+        }
+        catch (SqliteException)
+        {
+        }
     }
 
     private static void ApplySchema(SqliteConnection connection)
@@ -442,19 +495,28 @@ public sealed class PermanentDatabase : IDisposable
     // banco criado numa versão anterior precisa ganhar a versão nova automaticamente, sem
     // ficar preso pra sempre num SQL desatualizado que não tem como editar nem recriar.
     // Identificado por Name (+ IsBuiltIn=1) — existe atualiza o Command, não existe insere.
+    // Só escreve quando o SQL mudou de fato: no caso comum (nada mudou) é só leitura.
     private static void SeedOrUpdateBuiltInTemplates(SqliteConnection connection)
     {
         foreach (var (name, command) in BuiltInTemplates)
         {
             long? existingId = null;
+            string? existingCommand = null;
             using (var checkCommand = connection.CreateCommand())
             {
-                checkCommand.CommandText = "SELECT Id FROM Templates WHERE Name = $name AND IsBuiltIn = 1;";
+                checkCommand.CommandText = "SELECT Id, Command FROM Templates WHERE Name = $name AND IsBuiltIn = 1;";
                 checkCommand.Parameters.AddWithValue("$name", name);
-                if (checkCommand.ExecuteScalar() is { } result)
+                using var reader = checkCommand.ExecuteReader();
+                if (reader.Read())
                 {
-                    existingId = (long)result;
+                    existingId = reader.GetInt64(0);
+                    existingCommand = reader.GetString(1);
                 }
+            }
+
+            if (existingCommand == command)
+            {
+                continue;
             }
 
             using var writeCommand = connection.CreateCommand();

@@ -278,9 +278,10 @@ public partial class ChartViewModel : ObservableObject
     {
         var json = ChartJsonFormatter.ToChartJson(snapshot.Samples);
 
-        System.Windows.Application.Current.Dispatcher.Invoke(() =>
+        // InvokeAsync (não Invoke): o tick do monitor ao vivo não fica preso esperando a UI.
+        System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
         {
-            LiveStatusText = $"{snapshot.Samples.Count} amostra(s) (últimos ~60s).";
+            LiveStatusText =$"{snapshot.Samples.Count} amostra(s) (últimos ~60s).";
             LiveSamplesReady?.Invoke(this, json);
         });
     }
