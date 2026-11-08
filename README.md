@@ -13,9 +13,9 @@ App para Windows que monitora o uso de CPU, RAM e disco, e registra automaticame
 - **Tendência diária**: a cada ~5 minutos, registra a média do dia (CPU, RAM, I/O, uso de disco) — pra responder "o uso normal está subindo com o tempo?", um sinal útil pra decidir sobre upgrade de hardware.
 - **Interface gráfica** com ícone na bandeja do Windows (o menu mostra se está monitorando ou parado, e o app reabre do jeito que você deixou):
   - **Home**: visão geral — resumo do computador, status do monitoramento, gráfico ao vivo e top processos por CPU/RAM/Disco I/O.
-  - **Configurações**: limites de alerta, processos excluídos, limites por disco, iniciar com o Windows, iniciar/parar monitoramento, e limpeza seletiva de dados (cache, tendência, base de picos).
+  - **Configurações**: limites de alerta, processos excluídos, limites por disco, iniciar com o Windows, iniciar/parar monitoramento, por quanto tempo guardar a base de picos (365 dias por padrão; o que passar disso é apagado sozinho), e limpeza seletiva de dados (tendência, base de picos).
   - **Templates**: consultas SQL somente-leitura salvas — 3 prontas (Tendência diária, Ofensores, Base de picos) e outras que você criar, com filtro de período, exportação CSV e proteção contra escrita (mesmo um comando disfarçado é rejeitado).
-  - **Gráficos**: dados correntes ao vivo, tendência diária, e eventos de picos (tendência com marcadores clicáveis nos dias com alerta) — via WebView2 (Edge embutido).
+  - **Gráficos**: dados correntes ao vivo, tendência diária, e eventos de picos (tendência com marcadores clicáveis nos dias com alerta) — desenhados direto no WPF, com os valores de cada ponto ao passar o mouse.
   - **Relatórios**: documento imprimível ou exportável em PDF por período, com resumo, quebra por métrica, ofensores, padrão de horário dos alertas, tendência diária, projeção de espaço em disco e lista completa de eventos — cada seção é opcional (checkbox própria) e o relatório se atualiza sozinho ao mudar o filtro.
   - **Ajuda**: manual embutido explicando o ciclo de amostragem, alertas, templates e relatórios.
 - **App de console** equivalente, pra rodar sem interface gráfica (ex: como tarefa agendada) — compartilha a mesma configuração e banco de dados da GUI.

@@ -262,8 +262,8 @@
     <div class="cycle-arrow">→</div>
     <div class="cycle-step">
       <div class="step-label">2</div>
-      <div class="step-title">Guarda no cache</div>
-      <div class="step-detail">Memória, últimos ~1h — vira o gráfico "ao vivo"</div>
+      <div class="step-title">Guarda os últimos minutos</div>
+      <div class="step-detail">Só em memória, ~2 min — pra montar a janela de um pico</div>
     </div>
     <div class="cycle-arrow">→</div>
     <div class="cycle-step">
@@ -272,7 +272,8 @@
       <div class="step-detail">Passou do limite? Recuperou? Ver seção Alertas</div>
     </div>
   </div>
-  <p>Esse ciclo roda sempre — mesmo quando nada está em alerta. É dele que sai o gráfico "Dados correntes (ao vivo)" na aba Gráficos.</p>
+  <p>Esse ciclo roda o tempo todo enquanto o monitoramento está ligado — mesmo quando nada está em alerta. Os gráficos ao vivo (Home e Gráficos &gt; Dados Correntes) têm uma leitura própria, de 1 em 1 segundo, que só roda enquanto você está olhando pra eles — funcionam até com o monitoramento parado.</p>
+  <p>Em qualquer gráfico, passar o mouse mostra os valores daquele ponto (horário ou dia, CPU, RAM, I/O e, na tendência, uso de disco).</p>
 </section>
 
 <section id="liquido">
@@ -367,9 +368,9 @@
   <table class="data-table">
     <thead><tr><th>Categoria</th><th>O que é</th><th>Onde aparece</th></tr></thead>
     <tbody>
-      <tr><td>Cache</td><td>Amostras em memória do ciclo rápido — não é salvo em arquivo, some quando o monitoramento para</td><td>Home, Gráficos &gt; Dados Correntes</td></tr>
-      <tr><td>Base de picos</td><td>Eventos de alerta (Start/End), janela de amostras de cada pico, e o top de processos por CPU/RAM/I/O</td><td>Templates ("Base de picos", "Ofensores"), Gráficos &gt; Eventos de Picos, Relatório</td></tr>
-      <tr><td>Tendência diária</td><td>Médias diárias de CPU/RAM/I/O/disco, atualizadas a cada ~5min</td><td>Templates ("Tendência diária"), Gráficos &gt; Tendência, Relatório</td></tr>
+      <tr><td>Memória recente</td><td>Últimos ~2 minutos do ciclo, só em memória — de onde sai a janela de amostras quando um alerta abre. Some quando o monitoramento para</td><td>Base de picos (indiretamente)</td></tr>
+      <tr><td>Base de picos</td><td>Eventos de alerta (Start/End), janela de amostras de cada pico, e o top de processos por CPU/RAM/I/O. Mantida por 365 dias por padrão — ajustável em Configurações &gt; Histórico (0 = para sempre); o que passar disso é apagado sozinho, ao iniciar o monitoramento e uma vez por dia</td><td>Templates ("Base de picos", "Ofensores"), Gráficos &gt; Eventos de Picos, Relatório</td></tr>
+      <tr><td>Tendência diária</td><td>Médias diárias de CPU/RAM/I/O/disco, atualizadas a cada ~5min — nunca é apagada sozinha (uma linha por dia)</td><td>Templates ("Tendência diária"), Gráficos &gt; Tendência, Relatório</td></tr>
     </tbody>
   </table>
   <p>Tudo fica em <code>%LOCALAPPDATA%\ResourceMonitor\</code>, compartilhado entre o app de console e a interface gráfica — não importa qual dos dois você abre, os dois leem e escrevem o mesmo lugar.</p>
@@ -377,7 +378,7 @@
 
 <section id="limpeza">
   <h2>Limpando dados</h2>
-  <p>Em Configurações, o painel "Limpeza de dados" apaga por categoria (cache, tendência, base de picos — cada uma com sua própria caixa de seleção), sempre com confirmação antes. Apagar a base de picos ou a tendência exige o monitoramento parado; o cache pode ser limpo a qualquer momento, mas só existe enquanto o app está rodando.</p>
+  <p>Em Configurações, o painel "Limpeza de dados" apaga por categoria (tendência diária e base de picos — cada uma com sua própria caixa de seleção), sempre com confirmação antes, e exige o monitoramento parado. Além disso, a base de picos mais velha que o prazo de Configurações &gt; Histórico é apagada sozinha.</p>
 </section>
 
 <section id="abas">
@@ -386,9 +387,9 @@
     <thead><tr><th>Menu</th><th>Pra que serve</th></tr></thead>
     <tbody>
       <tr><td>Home</td><td>Visão geral: resumo do computador, status ativo/inativo, gráfico ao vivo, top processos por CPU/RAM/Disco I/O</td></tr>
-      <tr><td>Configurações</td><td>Limites de alerta, processos excluídos, discos monitorados, iniciar com o Windows, iniciar/parar monitoramento, limpeza de dados. Não tem botão Salvar: as mudanças são gravadas ao iniciar, trocar de tela, minimizar ou fechar. O app também lembra se o monitoramento estava ligado e volta assim na próxima abertura.</td></tr>
+      <tr><td>Configurações</td><td>Limites de alerta, processos excluídos, discos monitorados, iniciar com o Windows, iniciar/parar monitoramento, por quanto tempo guardar a base de picos, limpeza de dados. Não tem botão Salvar: as mudanças são gravadas ao iniciar, trocar de tela, minimizar ou fechar. O app também lembra se o monitoramento estava ligado e volta assim na próxima abertura.</td></tr>
       <tr><td>Templates</td><td>Consultas SQL somente-leitura salvas — 3 padrão (Tendência diária, Ofensores, Base de picos) mais as que você criar</td></tr>
-      <tr><td>Gráficos &gt; Dados Correntes</td><td>Gráfico ao vivo do ciclo rápido</td></tr>
+      <tr><td>Gráficos &gt; Dados Correntes</td><td>Gráfico ao vivo (último minuto, de 1 em 1 segundo)</td></tr>
       <tr><td>Gráficos &gt; Tendência</td><td>Tendência diária em gráfico</td></tr>
       <tr><td>Gráficos &gt; Eventos de Picos</td><td>Tendência diária com marcadores nos dias com alerta — clicar num marcador abre o detalhe do pico</td></tr>
       <tr><td>Relatórios</td><td>Documento imprimível por período, com várias seções (resumo, por métrica, ofensores, padrão de horário, tendência, projeção de disco, eventos) — pra decisão de hardware ou registro</td></tr>
