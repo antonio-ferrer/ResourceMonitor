@@ -1,27 +1,25 @@
 using System.Collections.ObjectModel;
-using System.Text.Json;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using ResourceMonitor.Alerting;
 using ResourceMonitor.Configuration;
-using ResourceMonitor.Gui;
 using ResourceMonitor.Gui.Notifications;
+using ResourceMonitor.Gui.Services;
 using ResourceMonitor.Monitoring;
 using ResourceMonitor.Sampling;
 using ResourceMonitor.Storage;
 using Application = System.Windows.Application;
-using MessageBox = System.Windows.MessageBox;
-using MessageBoxButton = System.Windows.MessageBoxButton;
-using MessageBoxImage = System.Windows.MessageBoxImage;
 
 namespace ResourceMonitor.Gui.ViewModels;
 
 public partial class MonitoringViewModel : ObservableObject
 {
+    private readonly MonitoringController _monitoring;
     private readonly MonitoringService _monitoringService;
-    private readonly string _dataDirectory;
+    private readonly SettingsSession _settings;
     private readonly ITrayNotifier _trayNotifier;
-    private readonly Func<string> _getDatabasePath;
+    private readonly IDialogService _dialogs;
+    private readonly IAutoStart _autoStart;
     private string? _lastFaultMessage;
 
     [ObservableProperty] private int sampleIntervalSeconds;
@@ -62,17 +60,21 @@ public partial class MonitoringViewModel : ObservableObject
         : "As mudanças são gravadas sozinhas ao iniciar, trocar de tela, minimizar ou fechar.";
 
     public MonitoringViewModel(
-        MonitoringService monitoringService, MonitorSettings initialSettings, string dataDirectory,
-        ITrayNotifier trayNotifier, Func<string> getDatabasePath)
+        MonitoringController monitoring, SettingsSession settings, ITrayNotifier trayNotifier,
+        IDialogService dialogs, IAutoStart autoStart)
     {
-        _monitoringService = monitoringService;
-        _dataDirectory = dataDirectory;
+        _monitoring = monitoring;
+        _monitoringService = monitoring.Service;
+        _settings = settings;
         _trayNotifier = trayNotifier;
-        _getDatabasePath = getDatabasePath;
+        _dialogs = dialogs;
+        _autoStart = autoStart;
 
-        LoadFrom(initialSettings);
+        LoadFrom(settings.Current);
         IsRunning = _monitoringService.IsRunning;
-        StartWithWindows = AutoStartManager.IsEnabled();
+        // Já ligado: a troca de false pra true regrava a entrada no registro
+        // (OnStartWithWindowsChanged), o que mantém o caminho do exe em dia se o app mudou de pasta.
+        StartWithWindows = _autoStart.IsEnabled();
 
         _monitoringService.SampleCollected += OnSampleCollected;
         _monitoringService.AlertRaised += OnAlertRaised;
@@ -119,7 +121,7 @@ public partial class MonitoringViewModel : ObservableObject
     private MonitorSettings BuildSettings() => new()
     {
         // Não tem campo na tela — preserva o valor que veio do arquivo.
-        LogDirectory = ((App)Application.Current).Settings.LogDirectory,
+        LogDirectory = _settings.Current.LogDirectory,
         SampleIntervalSeconds = SampleIntervalSeconds,
         ConsecutiveBreachesToAlert = ConsecutiveBreachesToAlert,
         ConsecutiveRecoveriesToClear = ConsecutiveRecoveriesToClear,
@@ -163,21 +165,16 @@ public partial class MonitoringViewModel : ObservableObject
     }
 
     // Sem botão Salvar: a janela chama isso ao iniciar, trocar de tela, minimizar, fechar e
-    // sair (ver MainWindow/App). Só grava se algo mudou em relação ao que está em vigor. Os
-    // valores passam pelo mesmo ajuste do carregamento (ex: intervalo 0 vira 1) e voltam pros
-    // campos já ajustados.
+    // sair (ver MainWindow/App). Só grava se algo mudou (ver SettingsSession.SaveIfChanged); os
+    // valores ajustados (ex: intervalo 0 vira 1) voltam pros campos.
     public void SaveIfChanged()
     {
-        var app = (App)Application.Current;
-        var settings = AppSettingsStore.Normalize(BuildSettings());
-        if (JsonSerializer.Serialize(settings) == JsonSerializer.Serialize(app.Settings))
+        if (!_settings.SaveIfChanged(BuildSettings()))
         {
             return;
         }
 
-        AppSettingsStore.Save(settings);
-        app.Settings = settings;
-        LoadFrom(settings);
+        LoadFrom(_settings.Current);
         SavedNoticeText = $"Configurações salvas às {DateTime.Now:HH:mm:ss}";
     }
 
@@ -192,8 +189,7 @@ public partial class MonitoringViewModel : ObservableObject
     private void Start()
     {
         SaveIfChanged();
-        var app = (App)Application.Current;
-        app.StartMonitoringByUser(app.Settings);
+        _monitoring.StartByUser();
         // Estado/StatusText são atualizados via RunningStateChanged (ver OnRunningStateChanged) —
         // mesmo caminho usado quando o start vem do menu da bandeja, não só desse botão.
     }
@@ -203,7 +199,7 @@ public partial class MonitoringViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanStop))]
     private async Task Stop()
     {
-        await ((App)Application.Current).StopMonitoringByUserAsync();
+        await _monitoring.StopByUserAsync();
     }
 
     private bool CanStop() => IsRunning;
@@ -269,7 +265,7 @@ public partial class MonitoringViewModel : ObservableObject
         });
     }
 
-    partial void OnStartWithWindowsChanged(bool value) => AutoStartManager.SetEnabled(value);
+    partial void OnStartWithWindowsChanged(bool value) => _autoStart.SetEnabled(value);
 
     [RelayCommand]
     private void ClearSelected()
@@ -283,11 +279,9 @@ public partial class MonitoringViewModel : ObservableObject
         // uma instância de PermanentDatabase que porventura já esteja escrevendo.
         if (_monitoringService.IsRunning)
         {
-            MessageBox.Show(
-                "Pare o monitoramento antes de limpar a tendência diária ou a base de picos.",
+            _dialogs.ShowWarning(
                 "ResourceMonitor",
-                MessageBoxButton.OK,
-                MessageBoxImage.Warning);
+                "Pare o monitoramento antes de limpar a tendência diária ou a base de picos.");
             return;
         }
 
@@ -295,18 +289,12 @@ public partial class MonitoringViewModel : ObservableObject
         if (ClearTrendSelected) items.Add("tendência diária");
         if (ClearPeaksSelected) items.Add("base de picos (eventos, amostras e processos)");
 
-        var confirm = MessageBox.Show(
-            $"Isso apaga permanentemente: {string.Join(", ", items)}. Continuar?",
-            "Limpar dados",
-            MessageBoxButton.YesNo,
-            MessageBoxImage.Warning);
-
-        if (confirm != System.Windows.MessageBoxResult.Yes)
+        if (!_dialogs.Confirm("Limpar dados", $"Isso apaga permanentemente: {string.Join(", ", items)}. Continuar?"))
         {
             return;
         }
 
-        PermanentDatabase.ClearData(_getDatabasePath(), ClearPeaksSelected, ClearTrendSelected);
+        PermanentDatabase.ClearData(_settings.DatabasePath, ClearPeaksSelected, ClearTrendSelected);
 
         StatusText = "Limpeza concluída.";
     }

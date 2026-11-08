@@ -7,13 +7,11 @@ using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Navigation;
-using System.Windows.Threading;
-using Microsoft.Web.WebView2.Core;
-using Microsoft.Web.WebView2.Wpf;
 using ResourceMonitor.Gui.Controls;
+using ResourceMonitor.Gui.Services;
 using ResourceMonitor.Gui.ViewModels;
+using ResourceMonitor.Monitoring;
 using ResourceMonitor.Storage;
-using Application = System.Windows.Application;
 using MenuItem = System.Windows.Controls.MenuItem;
 
 namespace ResourceMonitor.Gui;
@@ -25,30 +23,38 @@ public partial class MainWindow : Window
     private readonly TemplatesViewModel _templatesViewModel;
     private readonly ChartViewModel _chartViewModel;
     private readonly ReportViewModel _reportViewModel;
+    private readonly LiveMonitorService _liveMonitor;
+    private readonly WebViewHost _webViewHost;
 
     private bool _reportWebViewReady;
     private string? _pendingReportJson;
 
-    // Só Relatórios e Ajuda usam WebView2 (os gráficos são nativos, ver Controls/LineChart).
-    private readonly List<WebView2> _initializedWebViews = new();
-
-    public MainWindow()
+    // Tudo chega montado pelo App (raiz de composição).
+    public MainWindow(
+        HomeViewModel homeViewModel,
+        MonitoringViewModel monitoringViewModel,
+        TemplatesViewModel templatesViewModel,
+        ChartViewModel chartViewModel,
+        ReportViewModel reportViewModel,
+        LiveMonitorService liveMonitor,
+        WebViewHost webViewHost,
+        bool debugMode)
     {
         InitializeComponent();
 
-        var app = (App)Application.Current;
+        _homeViewModel = homeViewModel;
+        _monitoringViewModel = monitoringViewModel;
+        _templatesViewModel = templatesViewModel;
+        _chartViewModel = chartViewModel;
+        _reportViewModel = reportViewModel;
+        _liveMonitor = liveMonitor;
+        _webViewHost = webViewHost;
 
         Title = $"ResourceMonitor - v{AppVersion.Current}";
-        if (app.TraceLogger.IsEnabled)
+        if (debugMode)
         {
             Title += " - modo depuração";
         }
-
-        _homeViewModel = new HomeViewModel(app.MonitoringService, () => app.Settings, app.LiveMonitor);
-        _monitoringViewModel = new MonitoringViewModel(app.MonitoringService, app.Settings, app.DataDirectory, app.TrayNotifier, GetDatabasePath);
-        _templatesViewModel = new TemplatesViewModel(GetDatabasePath, app.TemplateQueries);
-        _chartViewModel = new ChartViewModel(app.LiveMonitor, GetDatabasePath, app.AlertEventQueries);
-        _reportViewModel = new ReportViewModel(GetDatabasePath, app.AlertEventQueries);
 
         HomeTabRoot.DataContext = _homeViewModel;
         MonitoringTabRoot.DataContext = _monitoringViewModel;
@@ -68,7 +74,7 @@ public partial class MainWindow : Window
         IsVisibleChanged += (_, _) =>
         {
             UpdateLiveConsumer();
-            UpdateWebViewsBackgroundState();
+            _ = _webViewHost.UpdateBackgroundStateAsync(this);
         };
         StateChanged += (_, _) =>
         {
@@ -78,75 +84,15 @@ public partial class MainWindow : Window
             }
 
             UpdateLiveConsumer();
-            UpdateWebViewsBackgroundState();
+            _ = _webViewHost.UpdateBackgroundStateAsync(this);
         };
 
         ShowSection(HomeTabRoot, MenuHome);
     }
 
-    private static string GetDatabasePath()
-    {
-        var app = (App)Application.Current;
-        return Path.Combine(app.DataDirectory, app.Settings.LogDirectory, "resourcemonitor.db");
-    }
-
-    // Todo WebView2 da janela passa por aqui: ambiente compartilhado (pasta de dados em
-    // %LOCALAPPDATA%, ver App.GetWebViewEnvironmentAsync) e registro pra
-    // UpdateWebViewsBackgroundState conseguir suspender os que já existem.
-    private async Task InitializeWebViewAsync(WebView2 webView)
-    {
-        var environment = await ((App)Application.Current).GetWebViewEnvironmentAsync();
-        await webView.EnsureCoreWebView2Async(environment);
-        _initializedWebViews.Add(webView);
-    }
-
-    private bool _webViewsInBackground;
-
-    // Janela fora da vista (bandeja ou minimizada): pede pros WebView2 já criados liberarem
-    // memória. Escondida na bandeja, também suspende — TrySuspendAsync exige o controle
-    // invisível, o que minimizado não é. Ao voltar, o WebView2 retoma sozinho quando fica
-    // visível; aqui só devolve o nível de memória normal.
-    private async void UpdateWebViewsBackgroundState()
-    {
-        var inBackground = !IsVisible || WindowState == WindowState.Minimized;
-        if (inBackground == _webViewsInBackground)
-        {
-            return;
-        }
-
-        _webViewsInBackground = inBackground;
-        var targetLevel = inBackground
-            ? CoreWebView2MemoryUsageTargetLevel.Low
-            : CoreWebView2MemoryUsageTargetLevel.Normal;
-        foreach (var webView in _initializedWebViews)
-        {
-            webView.CoreWebView2.MemoryUsageTargetLevel = targetLevel;
-        }
-
-        if (IsVisible)
-        {
-            return;
-        }
-
-        // Deixa os próprios controles processarem que ficaram invisíveis antes de suspender.
-        await Dispatcher.Yield(DispatcherPriority.Background);
-        foreach (var webView in _initializedWebViews.ToList())
-        {
-            if (IsVisible)
-            {
-                return;
-            }
-
-            try
-            {
-                await webView.CoreWebView2.TrySuspendAsync();
-            }
-            catch (Exception)
-            {
-                // Suspender é só economia de memória — se o WebView2 recusar, segue normal.
-            }
-        }
-    }
+    // Ligado pelo App ao sair de verdade (menu Sair da bandeja): aí fechar a janela fecha mesmo,
+    // em vez de só esconder na bandeja.
+    public bool IsExiting { get; set; }
 
     private bool _reportWebViewInitStarted;
     private bool _helpWebViewInitStarted;
@@ -209,14 +155,13 @@ public partial class MainWindow : Window
         }
 
         _isLiveConsumer = shouldConsume;
-        var liveMonitor = ((App)Application.Current).LiveMonitor;
         if (shouldConsume)
         {
-            liveMonitor.AddConsumer();
+            _liveMonitor.AddConsumer();
         }
         else
         {
-            liveMonitor.RemoveConsumer();
+            _liveMonitor.RemoveConsumer();
         }
     }
 
@@ -403,7 +348,7 @@ public partial class MainWindow : Window
             var reportHtmlUri = new Uri(Path.Combine(AppContext.BaseDirectory, "Assets", "report.html")).AbsoluteUri;
             var navigationCompleted = new TaskCompletionSource();
 
-            await InitializeWebViewAsync(ReportWebView);
+            await _webViewHost.InitializeAsync(ReportWebView);
             ReportWebView.CoreWebView2.NavigationCompleted += (_, _) =>
             {
                 _reportWebViewReady = true;
@@ -432,7 +377,7 @@ public partial class MainWindow : Window
         _helpWebViewInitStarted = true;
 
         var helpHtmlUri = new Uri(Path.Combine(AppContext.BaseDirectory, "Assets", "ajuda.html")).AbsoluteUri;
-        await InitializeWebViewAsync(HelpWebView);
+        await _webViewHost.InitializeAsync(HelpWebView);
         HelpWebView.CoreWebView2.Navigate(helpHtmlUri);
     }
 
@@ -461,8 +406,7 @@ public partial class MainWindow : Window
     protected override void OnClosing(CancelEventArgs e)
     {
         SaveSettingsIfChanged();
-        var app = (App)Application.Current;
-        if (!app.IsExiting)
+        if (!IsExiting)
         {
             e.Cancel = true;
             Hide();

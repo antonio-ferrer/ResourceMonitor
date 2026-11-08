@@ -1,12 +1,8 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using ResourceMonitor.Gui.Services;
 using ResourceMonitor.Storage;
-using MessageBox = System.Windows.MessageBox;
-using MessageBoxButton = System.Windows.MessageBoxButton;
-using MessageBoxImage = System.Windows.MessageBoxImage;
-using MessageBoxResult = System.Windows.MessageBoxResult;
-using SaveFileDialog = Microsoft.Win32.SaveFileDialog;
 
 namespace ResourceMonitor.Gui.ViewModels;
 
@@ -18,6 +14,7 @@ public partial class TemplatesViewModel : ObservableObject
 {
     private readonly Func<string> _getDatabasePath;
     private readonly TemplateQueries _templateQueries;
+    private readonly IDialogService _dialogs;
 
     [ObservableProperty] private DateTime? periodFrom = DateTime.Today.AddDays(-7);
     [ObservableProperty] private DateTime? periodTo = DateTime.Today;
@@ -40,10 +37,11 @@ public partial class TemplatesViewModel : ObservableObject
 
     public event EventHandler<QueryResult>? ResultReady;
 
-    public TemplatesViewModel(Func<string> getDatabasePath, TemplateQueries templateQueries)
+    public TemplatesViewModel(Func<string> getDatabasePath, TemplateQueries templateQueries, IDialogService dialogs)
     {
         _getDatabasePath = getDatabasePath;
         _templateQueries = templateQueries;
+        _dialogs = dialogs;
 
         Refresh();
     }
@@ -147,19 +145,17 @@ public partial class TemplatesViewModel : ObservableObject
             return;
         }
 
-        var dialog = new SaveFileDialog
-        {
-            Filter = "CSV (*.csv)|*.csv",
-            FileName = $"{(SelectedTemplate?.Name ?? "template")}_{DateTime.Now:yyyyMMdd_HHmmss}.csv",
-        };
+        var fileName = _dialogs.PickSaveFile(
+            "CSV (*.csv)|*.csv",
+            $"{(SelectedTemplate?.Name ?? "template")}_{DateTime.Now:yyyyMMdd_HHmmss}.csv");
 
-        if (dialog.ShowDialog() != true)
+        if (fileName is null)
         {
             return;
         }
 
-        CsvExporter.ExportQueryResult(dialog.FileName, _lastResult.Columns, _lastResult.Rows);
-        StatusText = $"Exportado pra {dialog.FileName}";
+        CsvExporter.ExportQueryResult(fileName, _lastResult.Columns, _lastResult.Rows);
+        StatusText = $"Exportado pra {fileName}";
     }
 
     [RelayCommand]
@@ -256,13 +252,7 @@ public partial class TemplatesViewModel : ObservableObject
             return;
         }
 
-        var confirm = MessageBox.Show(
-            $"Excluir o template \"{selected.Name}\"? Essa ação não pode ser desfeita.",
-            "Excluir template",
-            MessageBoxButton.YesNo,
-            MessageBoxImage.Warning);
-
-        if (confirm != MessageBoxResult.Yes)
+        if (!_dialogs.Confirm("Excluir template", $"Excluir o template \"{selected.Name}\"? Essa ação não pode ser desfeita."))
         {
             return;
         }

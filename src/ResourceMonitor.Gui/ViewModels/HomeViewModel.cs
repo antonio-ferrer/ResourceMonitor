@@ -15,7 +15,7 @@ public partial class HomeViewModel : ObservableObject
     private readonly MonitoringService _monitoringService;
 
     // Lido a cada atualização, não guardado: gravar as Configurações troca o objeto inteiro em
-    // App.Settings, e uma referência capturada no construtor ficaria mostrando o antigo.
+    // SettingsSession.Current, e uma referência capturada no construtor ficaria mostrando o antigo.
     private readonly Func<MonitorSettings> _getSettings;
 
     [ObservableProperty] private HardwareInfo hardware = HardwareInfoReader.Capture();

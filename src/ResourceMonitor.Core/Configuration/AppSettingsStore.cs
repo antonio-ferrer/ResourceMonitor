@@ -20,7 +20,7 @@ public static class AppSettingsStore
 
     // Arquivo ilegível (JSON quebrado, editado à mão errado) não impede o app de abrir: fica
     // guardado como .invalid pra consulta, o motivo vai pro errors.log, e seguem os padrões.
-    internal static MonitorSettings Load(string path)
+    public static MonitorSettings Load(string path)
     {
         if (!File.Exists(path))
         {
@@ -47,7 +47,7 @@ public static class AppSettingsStore
 
     // Grava num .tmp e troca pelo arquivo real de uma vez: uma queda no meio da gravação deixa
     // no máximo um .tmp sobrando, nunca um appsettings.json pela metade.
-    internal static void Save(MonitorSettings settings, string path)
+    public static void Save(MonitorSettings settings, string path)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var json = JsonSerializer.Serialize(settings, SerializerOptions);

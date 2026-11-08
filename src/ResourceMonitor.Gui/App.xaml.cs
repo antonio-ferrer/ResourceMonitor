@@ -1,13 +1,11 @@
-using System.Drawing;
 using System.Globalization;
 using System.IO;
 using System.Windows;
-using System.Windows.Forms;
 using System.Windows.Markup;
-using Microsoft.Web.WebView2.Core;
 using ResourceMonitor.Configuration;
 using ResourceMonitor.Diagnostics;
-using ResourceMonitor.Gui.Notifications;
+using ResourceMonitor.Gui.Services;
+using ResourceMonitor.Gui.ViewModels;
 using ResourceMonitor.Instancing;
 using ResourceMonitor.Monitoring;
 using ResourceMonitor.Storage;
@@ -17,35 +15,19 @@ namespace ResourceMonitor.Gui;
 
 public partial class App : Application
 {
-    private NotifyIcon? _notifyIcon;
-
-    public MonitoringService MonitoringService { get; } = new();
-
-    public LiveMonitorService LiveMonitor { get; } = new();
-
-    public MonitorSettings Settings { get; set; } = new();
-
-    public string DataDirectory { get; } = AppSettingsStore.GetDataDirectory();
-
-    // Raiz de composição: montados em OnStartup, repassados pra MainWindow -> ViewModels.
-    public ITraceLogger TraceLogger { get; private set; } = new NullTraceLogger();
-
-    public AlertEventQueries AlertEventQueries { get; private set; } = new(new NullTraceLogger());
-
-    public TemplateQueries TemplateQueries { get; private set; } = new(new NullTraceLogger());
-
-    public ITrayNotifier TrayNotifier { get; private set; } = null!;
-
-    public bool IsExiting { get; private set; }
+    private readonly MonitoringService _monitoringService = new();
+    private readonly LiveMonitorService _liveMonitor = new();
+    private readonly string _dataDirectory = AppSettingsStore.GetDataDirectory();
 
     private SingleInstanceGuard? _singleInstanceGuard;
     private GuiActivationSignal? _activationSignal;
+    private TrayIconController? _trayIcon;
 
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
 
-        ErrorLog.Initialize(Path.Combine(DataDirectory, "logs"));
+        ErrorLog.Initialize(Path.Combine(_dataDirectory, "logs"));
         DispatcherUnhandledException += OnDispatcherUnhandledException;
         AppDomain.CurrentDomain.UnhandledException += (_, args) =>
             ErrorLog.Write("App", "Erro fatal não tratado, o app vai fechar.", args.ExceptionObject as Exception);
@@ -80,12 +62,10 @@ public partial class App : Application
         _activationSignal = new GuiActivationSignal();
         Task.Run(() => _activationSignal.RunListenerLoop(() => Dispatcher.Invoke(ShowMainWindow)));
 
-        TraceLogger = TraceLoggerFactory.Create(e.Args, Path.Combine(DataDirectory, "logs"));
-        AlertEventQueries = new AlertEventQueries(TraceLogger);
-        TemplateQueries = new TemplateQueries(TraceLogger);
+        var traceLogger = TraceLoggerFactory.Create(e.Args, Path.Combine(_dataDirectory, "logs"));
 
-        TraceLogger.Trace("App", $"OnStartup iniciado. Args=[{string.Join(", ", e.Args)}] DataDirectory='{DataDirectory}'");
-        TraceLogger.Trace("App", $"Cultura da thread ANTES do override: {CultureInfo.CurrentCulture.Name} (dd/MM/yyyy? {CultureInfo.CurrentCulture.DateTimeFormat.ShortDatePattern})");
+        traceLogger.Trace("App", $"OnStartup iniciado. Args=[{string.Join(", ", e.Args)}] DataDirectory='{_dataDirectory}'");
+        traceLogger.Trace("App", $"Cultura da thread ANTES do override: {CultureInfo.CurrentCulture.Name} (dd/MM/yyyy? {CultureInfo.CurrentCulture.DateTimeFormat.ShortDatePattern})");
 
         // App é 100% em português — fixa a cultura em vez de depender da config regional
         // do Windows. WPF por padrão formata StringFormat de binding com Language="en-US"
@@ -100,101 +80,44 @@ public partial class App : Application
         FrameworkElement.LanguageProperty.OverrideMetadata(
             typeof(FrameworkElement), new FrameworkPropertyMetadata(XmlLanguage.GetLanguage(culture.IetfLanguageTag)));
 
-        TraceLogger.Trace("App", $"Cultura da thread DEPOIS do override: {CultureInfo.CurrentCulture.Name} (dd/MM/yyyy? {CultureInfo.CurrentCulture.DateTimeFormat.ShortDatePattern}); FrameworkElement.Language default agora = {FrameworkElement.LanguageProperty.GetMetadata(typeof(FrameworkElement)).DefaultValue}");
+        traceLogger.Trace("App", $"Cultura da thread DEPOIS do override: {CultureInfo.CurrentCulture.Name} (dd/MM/yyyy? {CultureInfo.CurrentCulture.DateTimeFormat.ShortDatePattern}); FrameworkElement.Language default agora = {FrameworkElement.LanguageProperty.GetMetadata(typeof(FrameworkElement)).DefaultValue}");
 
-        Settings = AppSettingsStore.Load();
-        TraceLogger.Trace("App", $"Settings carregado. LogDirectory='{Settings.LogDirectory}' databasePath calculado='{Path.Combine(DataDirectory, Settings.LogDirectory, "resourcemonitor.db")}'");
+        // Raiz de composição: tudo que a janela e os ViewModels usam é montado aqui e passado
+        // pelos construtores — ninguém mais busca dependências em Application.Current.
+        var settings = new SettingsSession(_dataDirectory, AppSettingsStore.GetSettingsFilePath());
+        traceLogger.Trace("App", $"Settings carregado. LogDirectory='{settings.Current.LogDirectory}' databasePath calculado='{settings.DatabasePath}'");
 
-        SetupTrayIcon();
+        var monitoring = new MonitoringController(_monitoringService, settings, MonitoringStateStore.GetFilePath());
+        _trayIcon = new TrayIconController(monitoring, ShowMainWindow, ExitApplication);
+        var webViewHost = new WebViewHost(Path.Combine(_dataDirectory, "WebView2"));
+        var dialogs = new WpfDialogService();
+        var alertEventQueries = new AlertEventQueries(traceLogger);
+        var templateQueries = new TemplateQueries(traceLogger);
 
-        Task.Run(DeleteLegacyWebViewFolder);
+        Task.Run(WebViewHost.DeleteLegacyFolder);
 
         // Volta como o usuário deixou: monitorando ou parado (ver MonitoringStateStore). Vale
         // também pro boot com o Windows.
-        if (MonitoringStateStore.LoadMonitoringActive())
-        {
-            MonitoringService.Start(Settings, DataDirectory);
-        }
+        monitoring.StartIfLeftRunning();
+
+        Func<string> getDatabasePath = () => settings.DatabasePath;
+        var mainWindow = new MainWindow(
+            new HomeViewModel(_monitoringService, () => settings.Current, _liveMonitor),
+            new MonitoringViewModel(monitoring, settings, _trayIcon.Notifier, dialogs, new RegistryAutoStart()),
+            new TemplatesViewModel(getDatabasePath, templateQueries, dialogs),
+            new ChartViewModel(_liveMonitor, getDatabasePath, alertEventQueries),
+            new ReportViewModel(getDatabasePath, alertEventQueries),
+            _liveMonitor,
+            webViewHost,
+            traceLogger.IsEnabled);
+        MainWindow = mainWindow;
 
         // Passado pela entrada de registro de "iniciar com o Windows" (ver AutoStartManager) —
         // sobe direto pra bandeja, sem popup de janela.
-        var startMinimized = e.Args.Contains("--minimized");
-
-        var mainWindow = new MainWindow();
-        MainWindow = mainWindow;
-        if (!startMinimized)
+        if (!e.Args.Contains("--minimized"))
         {
             mainWindow.Show();
         }
-    }
-
-    // Iniciar/Parar pedidos pelo usuário (janela ou bandeja): além de agir, lembram a escolha
-    // pra próxima abertura. Parar porque o app está saindo não passa por aqui, então sair com
-    // o monitoramento ligado faz o app voltar monitorando.
-    public void StartMonitoringByUser(MonitorSettings settings)
-    {
-        MonitoringStateStore.SaveMonitoringActive(true);
-        MonitoringService.Start(settings, DataDirectory);
-    }
-
-    public async Task StopMonitoringByUserAsync()
-    {
-        MonitoringStateStore.SaveMonitoringActive(false);
-        await MonitoringService.StopAsync();
-    }
-
-    private ToolStripItem? _trayStatusItem;
-    private ToolStripItem? _trayStartItem;
-    private ToolStripItem? _trayStopItem;
-
-    private void SetupTrayIcon()
-    {
-        var menu = new ContextMenuStrip();
-        // Linha só informativa (desabilitada), atualizada a cada abertura do menu.
-        _trayStatusItem = menu.Items.Add(string.Empty);
-        _trayStatusItem.Enabled = false;
-        menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Abrir", null, (_, _) => ShowMainWindow());
-        _trayStartItem = menu.Items.Add("Iniciar monitoramento", null, (_, _) => StartMonitoringByUser(Settings));
-        _trayStopItem = menu.Items.Add("Parar monitoramento", null, async (_, _) => await StopMonitoringByUserAsync());
-        menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Sair", null, (_, _) => ExitApplication());
-        menu.Opening += (_, _) => UpdateTrayStatus();
-
-        // Assembly.Location aponta pro .dll gerenciado, que não carrega o ícone do ApplicationIcon
-        // (isso fica embutido no apphost .exe) — por isso extrai do processo em execução.
-        var exePath = Environment.ProcessPath;
-        var appIcon = (exePath is not null ? Icon.ExtractAssociatedIcon(exePath) : null) ?? SystemIcons.Application;
-
-        _notifyIcon = new NotifyIcon
-        {
-            Icon = appIcon,
-            Visible = true,
-            Text = "ResourceMonitor",
-            ContextMenuStrip = menu,
-        };
-        _notifyIcon.DoubleClick += (_, _) => ShowMainWindow();
-
-        TrayNotifier = new TrayNotifier(_notifyIcon);
-
-        // O texto ao passar o mouse no ícone também mostra o estado. RunningStateChanged pode
-        // vir de outra thread (loop que parou por falha), daí o InvokeAsync.
-        MonitoringService.RunningStateChanged += (_, _) => Dispatcher.InvokeAsync(UpdateTrayStatus);
-        UpdateTrayStatus();
-    }
-
-    private void UpdateTrayStatus()
-    {
-        if (IsExiting || _notifyIcon is null || _trayStatusItem is null || _trayStartItem is null || _trayStopItem is null)
-        {
-            return;
-        }
-
-        var running = MonitoringService.IsRunning;
-        _trayStatusItem.Text = running ? "● Monitorando" : "○ Parado";
-        _trayStartItem.Enabled = !running;
-        _trayStopItem.Enabled = running;
-        _notifyIcon.Text = running ? "ResourceMonitor — monitorando" : "ResourceMonitor — parado";
     }
 
     private bool _isShowingErrorDialog;
@@ -227,35 +150,7 @@ public partial class App : Application
         }
     }
 
-    private Task<CoreWebView2Environment>? _webViewEnvironment;
-
-    // Todos os WebView2 do app compartilham um ambiente com a pasta de dados em
-    // %LOCALAPPDATA%\ResourceMonitor\WebView2. Sem isso o WebView2 cria "<exe>.WebView2" ao
-    // lado do executável — suja a pasta do app e falha numa pasta sem permissão de escrita
-    // (ex: Program Files). Criado na primeira vez que alguém pede (thread de UI).
-    public Task<CoreWebView2Environment> GetWebViewEnvironmentAsync() =>
-        _webViewEnvironment ??= CoreWebView2Environment.CreateAsync(
-            userDataFolder: Path.Combine(DataDirectory, "WebView2"));
-
-    // Pasta de dados do WebView2 que versões até a 0.4.0 criavam ao lado do exe (ver
-    // GetWebViewEnvironmentAsync). É só cache do próprio app; se não der pra apagar, fica lá.
-    private static void DeleteLegacyWebViewFolder()
-    {
-        try
-        {
-            var legacyFolder = Path.Combine(
-                AppContext.BaseDirectory, Path.GetFileName(Environment.ProcessPath ?? "ResourceMonitor.Gui.exe") + ".WebView2");
-            if (Directory.Exists(legacyFolder))
-            {
-                Directory.Delete(legacyFolder, recursive: true);
-            }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-        }
-    }
-
-    public void ShowMainWindow()
+    private void ShowMainWindow()
     {
         if (MainWindow is null)
         {
@@ -267,16 +162,15 @@ public partial class App : Application
         MainWindow.Activate();
     }
 
-    public void ExitApplication()
+    private void ExitApplication()
     {
-        (MainWindow as MainWindow)?.SaveSettingsIfChanged();
-        IsExiting = true;
-        if (_notifyIcon is not null)
+        if (MainWindow is MainWindow mainWindow)
         {
-            _notifyIcon.Visible = false;
-            _notifyIcon.Dispose();
+            mainWindow.SaveSettingsIfChanged();
+            mainWindow.IsExiting = true;
         }
 
+        _trayIcon?.Dispose();
         Shutdown();
     }
 
@@ -289,8 +183,8 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
-        MonitoringService.Dispose();
-        LiveMonitor.Dispose();
+        _monitoringService.Dispose();
+        _liveMonitor.Dispose();
         _activationSignal?.Dispose();
         _singleInstanceGuard?.Dispose();
         base.OnExit(e);

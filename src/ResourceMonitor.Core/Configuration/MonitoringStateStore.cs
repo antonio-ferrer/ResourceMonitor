@@ -20,7 +20,7 @@ public static class MonitoringStateStore
     public static void SaveMonitoringActive(bool active) => SaveMonitoringActive(active, GetFilePath());
 
     // Sem arquivo (primeira execução) ou ilegível: monitorando — é pra isso que o app existe.
-    internal static bool LoadMonitoringActive(string path)
+    public static bool LoadMonitoringActive(string path)
     {
         try
         {
@@ -40,7 +40,7 @@ public static class MonitoringStateStore
 
     // Mesma troca atômica do AppSettingsStore. Falha ao gravar não impede iniciar/parar —
     // só a escolha deixa de ser lembrada na próxima abertura.
-    internal static void SaveMonitoringActive(bool active, string path)
+    public static void SaveMonitoringActive(bool active, string path)
     {
         try
         {

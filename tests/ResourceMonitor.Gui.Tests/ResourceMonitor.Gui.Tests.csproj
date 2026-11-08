@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- xUnit v3: o projeto de teste é um executável próprio. -->
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <!-- Os ViewModels da GUI usam tipos do WPF (CommunityToolkit, coleções observáveis). -->
+    <UseWPF>true</UseWPF>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Roda pelo Microsoft.Testing.Platform (ver "test" no global.json), sem VSTest. -->
+    <PackageReference Include="xunit.v3" Version="4.0.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\ResourceMonitor.Gui\ResourceMonitor.Gui.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Mesma pasta temporária por teste dos testes do Core. -->
+    <Compile Include="..\ResourceMonitor.Core.Tests\TempFolder.cs" Link="TempFolder.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+    <!-- Com UseWPF o SDK tira System.IO dos usings implícitos (conflito com System.Windows). -->
+    <Using Include="System.IO" />
+  </ItemGroup>
+
+</Project>
