@@ -109,13 +109,16 @@ public partial class App : Application
 
         Task.Run(DeleteLegacyWebViewFolder);
 
-        // Passado pela entrada de registro de "iniciar com o Windows" (ver AutoStartManager) —
-        // sobe direto pra bandeja, já monitorando, sem popup de janela.
-        var startMinimized = e.Args.Contains("--minimized");
-        if (startMinimized)
+        // Volta como o usuário deixou: monitorando ou parado (ver MonitoringStateStore). Vale
+        // também pro boot com o Windows.
+        if (MonitoringStateStore.LoadMonitoringActive())
         {
             MonitoringService.Start(Settings, DataDirectory);
         }
+
+        // Passado pela entrada de registro de "iniciar com o Windows" (ver AutoStartManager) —
+        // sobe direto pra bandeja, sem popup de janela.
+        var startMinimized = e.Args.Contains("--minimized");
 
         var mainWindow = new MainWindow();
         MainWindow = mainWindow;
@@ -125,14 +128,38 @@ public partial class App : Application
         }
     }
 
+    // Iniciar/Parar pedidos pelo usuário (janela ou bandeja): além de agir, lembram a escolha
+    // pra próxima abertura. Parar porque o app está saindo não passa por aqui, então sair com
+    // o monitoramento ligado faz o app voltar monitorando.
+    public void StartMonitoringByUser(MonitorSettings settings)
+    {
+        MonitoringStateStore.SaveMonitoringActive(true);
+        MonitoringService.Start(settings, DataDirectory);
+    }
+
+    public async Task StopMonitoringByUserAsync()
+    {
+        MonitoringStateStore.SaveMonitoringActive(false);
+        await MonitoringService.StopAsync();
+    }
+
+    private ToolStripItem? _trayStatusItem;
+    private ToolStripItem? _trayStartItem;
+    private ToolStripItem? _trayStopItem;
+
     private void SetupTrayIcon()
     {
         var menu = new ContextMenuStrip();
+        // Linha só informativa (desabilitada), atualizada a cada abertura do menu.
+        _trayStatusItem = menu.Items.Add(string.Empty);
+        _trayStatusItem.Enabled = false;
+        menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Abrir", null, (_, _) => ShowMainWindow());
-        menu.Items.Add("Iniciar monitoramento", null, (_, _) => MonitoringService.Start(Settings, DataDirectory));
-        menu.Items.Add("Parar monitoramento", null, async (_, _) => await MonitoringService.StopAsync());
+        _trayStartItem = menu.Items.Add("Iniciar monitoramento", null, (_, _) => StartMonitoringByUser(Settings));
+        _trayStopItem = menu.Items.Add("Parar monitoramento", null, async (_, _) => await StopMonitoringByUserAsync());
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Sair", null, (_, _) => ExitApplication());
+        menu.Opening += (_, _) => UpdateTrayStatus();
 
         // Assembly.Location aponta pro .dll gerenciado, que não carrega o ícone do ApplicationIcon
         // (isso fica embutido no apphost .exe) — por isso extrai do processo em execução.
@@ -149,6 +176,25 @@ public partial class App : Application
         _notifyIcon.DoubleClick += (_, _) => ShowMainWindow();
 
         TrayNotifier = new TrayNotifier(_notifyIcon);
+
+        // O texto ao passar o mouse no ícone também mostra o estado. RunningStateChanged pode
+        // vir de outra thread (loop que parou por falha), daí o InvokeAsync.
+        MonitoringService.RunningStateChanged += (_, _) => Dispatcher.InvokeAsync(UpdateTrayStatus);
+        UpdateTrayStatus();
+    }
+
+    private void UpdateTrayStatus()
+    {
+        if (IsExiting || _notifyIcon is null || _trayStatusItem is null || _trayStartItem is null || _trayStopItem is null)
+        {
+            return;
+        }
+
+        var running = MonitoringService.IsRunning;
+        _trayStatusItem.Text = running ? "● Monitorando" : "○ Parado";
+        _trayStartItem.Enabled = !running;
+        _trayStopItem.Enabled = running;
+        _notifyIcon.Text = running ? "ResourceMonitor — monitorando" : "ResourceMonitor — parado";
     }
 
     private bool _isShowingErrorDialog;

@@ -174,7 +174,7 @@ public partial class MonitoringViewModel : ObservableObject
     private void Start()
     {
         var settings = BuildSettings();
-        _monitoringService.Start(settings, _dataDirectory);
+        ((App)Application.Current).StartMonitoringByUser(settings);
         // Estado/StatusText são atualizados via RunningStateChanged (ver OnRunningStateChanged) —
         // mesmo caminho usado quando o start vem do menu da bandeja, não só desse botão.
     }
@@ -184,7 +184,7 @@ public partial class MonitoringViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanStop))]
     private async Task Stop()
     {
-        await _monitoringService.StopAsync();
+        await ((App)Application.Current).StopMonitoringByUserAsync();
     }
 
     private bool CanStop() => IsRunning;

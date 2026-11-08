@@ -11,7 +11,7 @@ App para Windows que monitora o uso de CPU, RAM e disco, e registra automaticame
 - **Espaço em disco é tratado à parte**: cada unidade fixa tem seu próprio limite, e uma violação vira uma notificação na bandeja em vez de um episódio na base de picos. Se um disco ficar indisponível durante a execução, ele para de ser monitorado até o próximo início.
 - **Captura de janela de pico**: quando um alerta dispara, o app guarda automaticamente as amostras de alguns segundos antes e depois do pico, mais o snapshot dos processos que mais consumiam CPU, RAM e I/O de disco naquele momento — sem precisar gravar o histórico completo o tempo todo.
 - **Tendência diária**: a cada ~5 minutos, registra a média do dia (CPU, RAM, I/O, uso de disco) — pra responder "o uso normal está subindo com o tempo?", um sinal útil pra decidir sobre upgrade de hardware.
-- **Interface gráfica** com ícone na bandeja do Windows:
+- **Interface gráfica** com ícone na bandeja do Windows (o menu mostra se está monitorando ou parado, e o app reabre do jeito que você deixou):
   - **Home**: visão geral — resumo do computador, status do monitoramento, gráfico ao vivo e top processos por CPU/RAM/Disco I/O.
   - **Configurações**: limites de alerta, processos excluídos, limites por disco, iniciar com o Windows, iniciar/parar monitoramento, e limpeza seletiva de dados (cache, tendência, base de picos).
   - **Templates**: consultas SQL somente-leitura salvas — 3 prontas (Tendência diária, Ofensores, Base de picos) e outras que você criar, com filtro de período, exportação CSV e proteção contra escrita (mesmo um comando disfarçado é rejeitado).
