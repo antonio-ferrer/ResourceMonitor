@@ -4,6 +4,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Forms;
 using System.Windows.Markup;
+using Microsoft.Web.WebView2.Core;
 using ResourceMonitor.Configuration;
 using ResourceMonitor.Diagnostics;
 using ResourceMonitor.Gui.Notifications;
@@ -96,6 +97,8 @@ public partial class App : Application
 
         SetupTrayIcon();
 
+        Task.Run(DeleteLegacyWebViewFolder);
+
         // Passado pela entrada de registro de "iniciar com o Windows" (ver AutoStartManager) —
         // sobe direto pra bandeja, já monitorando, sem popup de janela.
         var startMinimized = e.Args.Contains("--minimized");
@@ -136,6 +139,34 @@ public partial class App : Application
         _notifyIcon.DoubleClick += (_, _) => ShowMainWindow();
 
         TrayNotifier = new TrayNotifier(_notifyIcon);
+    }
+
+    private Task<CoreWebView2Environment>? _webViewEnvironment;
+
+    // Todos os WebView2 do app compartilham um ambiente com a pasta de dados em
+    // %LOCALAPPDATA%\ResourceMonitor\WebView2. Sem isso o WebView2 cria "<exe>.WebView2" ao
+    // lado do executável — suja a pasta do app e falha numa pasta sem permissão de escrita
+    // (ex: Program Files). Criado na primeira vez que alguém pede (thread de UI).
+    public Task<CoreWebView2Environment> GetWebViewEnvironmentAsync() =>
+        _webViewEnvironment ??= CoreWebView2Environment.CreateAsync(
+            userDataFolder: Path.Combine(DataDirectory, "WebView2"));
+
+    // Pasta de dados do WebView2 que versões até a 0.4.0 criavam ao lado do exe (ver
+    // GetWebViewEnvironmentAsync). É só cache do próprio app; se não der pra apagar, fica lá.
+    private static void DeleteLegacyWebViewFolder()
+    {
+        try
+        {
+            var legacyFolder = Path.Combine(
+                AppContext.BaseDirectory, Path.GetFileName(Environment.ProcessPath ?? "ResourceMonitor.Gui.exe") + ".WebView2");
+            if (Directory.Exists(legacyFolder))
+            {
+                Directory.Delete(legacyFolder, recursive: true);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+        }
     }
 
     public void ShowMainWindow()

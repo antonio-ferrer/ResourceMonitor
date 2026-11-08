@@ -12,10 +12,8 @@ namespace ResourceMonitor.Gui.ViewModels;
 
 public sealed record QueryResult(IReadOnlyList<string> Columns, IReadOnlyList<IReadOnlyList<string?>> Rows);
 
-// Dona da tela de Templates (ex-aba Dados). O texto do SQL em si vive no editor (WebView2,
-// Assets/sql-editor.html) — este ViewModel não guarda uma cópia própria em memória, só lê
-// (GetEditorTextAsync) e escreve (SetEditorText) via os dois delegates que o code-behind
-// conecta, pull em vez de round-trip a cada tecla.
+// Dona da tela de Templates (ex-aba Dados). O texto do SQL vive em EditorText, ligado direto
+// ao TextBox do editor (MainWindow.xaml).
 public partial class TemplatesViewModel : ObservableObject
 {
     private readonly Func<string> _getDatabasePath;
@@ -30,20 +28,17 @@ public partial class TemplatesViewModel : ObservableObject
     [ObservableProperty] private string newTemplateName = string.Empty;
     [ObservableProperty] private string newTemplateError = string.Empty;
 
-    // Editor SQL entra escondido por padrão (botão "Editor" faz o toggle) — o WebView2
-    // continua existindo e com o texto carregado mesmo escondido, então Executar/Salvar
-    // funcionam igual estando ele visível ou não.
+    // Editor SQL entra escondido por padrão (botão "Editor" faz o toggle) — o texto continua
+    // em EditorText mesmo escondido, então Executar/Salvar funcionam igual estando ele
+    // visível ou não.
     [ObservableProperty] private bool isEditorVisible;
+    [ObservableProperty] private string editorText = string.Empty;
 
     public ObservableCollection<TemplateRow> Templates { get; } = new();
 
     private QueryResult? _lastResult;
 
     public event EventHandler<QueryResult>? ResultReady;
-
-    // Ligados pelo code-behind depois que o WebView2 do editor estiver pronto.
-    public Func<Task<string>>? GetEditorTextAsync { get; set; }
-    public Action<string>? SetEditorText { get; set; }
 
     public TemplatesViewModel(Func<string> getDatabasePath, TemplateQueries templateQueries)
     {
@@ -73,7 +68,7 @@ public partial class TemplatesViewModel : ObservableObject
         if (value is not null)
         {
             IsCreatingNew = false;
-            SetEditorText?.Invoke(value.Command);
+            EditorText = value.Command;
 
             // Só depois da primeira carga (ver EnsureInitialPeriodAsync) — trocar o combo
             // durante a construção do ViewModel (Refresh() no construtor) dispararia
@@ -119,21 +114,10 @@ public partial class TemplatesViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async Task ExecutarAsync()
-    {
-        if (GetEditorTextAsync is null)
-        {
-            return;
-        }
+    private void Executar() => ExecutarComando(EditorText);
 
-        var command = await GetEditorTextAsync();
-        ExecutarComando(command);
-    }
-
-    // Compartilhado por ExecutarAsync (lê o SQL editado do WebView2) e pelos disparos
-    // automáticos — troca de template no combo (OnSelectedTemplateChanged) e carga inicial
-    // (EnsureInitialPeriodAsync) — que já sabem o texto de antemão (TemplateRow.Command) e
-    // não precisam de round-trip com o editor só pra reobter o que já têm em mãos.
+    // Compartilhado por Executar (SQL editado) e pelos disparos automáticos — troca de
+    // template no combo (OnSelectedTemplateChanged) e carga inicial (EnsureInitialPeriodAsync).
     private void ExecutarComando(string command)
     {
         var databasePath = _getDatabasePath();
@@ -188,7 +172,7 @@ public partial class TemplatesViewModel : ObservableObject
         IsEditorVisible = true;
         NewTemplateName = string.Empty;
         NewTemplateError = string.Empty;
-        SetEditorText?.Invoke("SELECT *\nFROM AlertEvents\nWHERE TimestampUtc >= $from AND TimestampUtc <= $to\nORDER BY TimestampUtc DESC;");
+        EditorText = "SELECT *\nFROM AlertEvents\nWHERE TimestampUtc >= $from AND TimestampUtc <= $to\nORDER BY TimestampUtc DESC;";
     }
 
     [RelayCommand]
@@ -199,25 +183,18 @@ public partial class TemplatesViewModel : ObservableObject
 
         if (SelectedTemplate is { } selected)
         {
-            SetEditorText?.Invoke(selected.Command);
+            EditorText = selected.Command;
         }
     }
 
-    // O nome é o único critério checável de forma síncrona (CanExecute desabilita o botão em
-    // tempo real); o SQL só dá pra validar no clique, já que o texto mora no editor (WebView2)
-    // e é lido via ExecuteScriptAsync, não fica espelhado aqui — daí NewTemplateError abaixo.
-    // Não basta o texto começar com SELECT: só salva se a consulta rodar de verdade contra o
+    // O nome é checado em tempo real (CanExecute desabilita o botão); o SQL só é validado no
+    // clique, rodando a consulta — daí NewTemplateError abaixo. Não basta o texto começar com SELECT: só salva se a consulta rodar de verdade contra o
     // banco (ExecutarComando), com o período atual — evita salvar um template que nunca foi
     // sequer carregado uma vez e que na prática dá erro (coluna/tabela errada, etc).
     [RelayCommand(CanExecute = nameof(PodeSalvarNovoTemplate))]
-    private async Task SalvarNovoTemplateAsync()
+    private void SalvarNovoTemplate()
     {
-        if (GetEditorTextAsync is null)
-        {
-            return;
-        }
-
-        var command = await GetEditorTextAsync();
+        var command = EditorText;
         ExecutarComando(command);
 
         if (_lastResult is null)
@@ -241,17 +218,17 @@ public partial class TemplatesViewModel : ObservableObject
 
     // Salva o SQL editado de volta no template já selecionado (em vez de criar um novo) —
     // só pra templates do usuário, mesma restrição de ExcluirTemplate. Nome fica como estava;
-    // só o Command muda. Mesma exigência de SalvarNovoTemplateAsync: só salva se a consulta
+    // só o Command muda. Mesma exigência de SalvarNovoTemplate: só salva se a consulta
     // rodar de verdade (ExecutarComando), não só "parece um SELECT".
     [RelayCommand(CanExecute = nameof(PodeSalvarAlteracoes))]
-    private async Task SalvarAlteracoesAsync()
+    private void SalvarAlteracoes()
     {
-        if (GetEditorTextAsync is null || SelectedTemplate is not { IsBuiltIn: false } selected)
+        if (SelectedTemplate is not { IsBuiltIn: false } selected)
         {
             return;
         }
 
-        var command = await GetEditorTextAsync();
+        var command = EditorText;
         ExecutarComando(command);
 
         if (_lastResult is null)

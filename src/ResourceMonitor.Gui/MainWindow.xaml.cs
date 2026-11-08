@@ -8,6 +8,9 @@ using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Navigation;
+using System.Windows.Threading;
+using Microsoft.Web.WebView2.Core;
+using Microsoft.Web.WebView2.Wpf;
 using ResourceMonitor.Gui.ViewModels;
 using Application = System.Windows.Application;
 using MenuItem = System.Windows.Controls.MenuItem;
@@ -37,8 +40,7 @@ public partial class MainWindow : Window
     private bool _eventsWebViewReady;
     private string? _pendingEventsJson;
 
-    private bool _sqlEditorWebViewReady;
-    private string? _pendingSqlEditorText;
+    private readonly List<WebView2> _initializedWebViews = new();
 
     public MainWindow()
     {
@@ -66,8 +68,6 @@ public partial class MainWindow : Window
         ChartEventosTabRoot.DataContext = _chartViewModel;
         ReportTabRoot.DataContext = _reportViewModel;
 
-        _templatesViewModel.GetEditorTextAsync = GetSqlEditorTextAsync;
-        _templatesViewModel.SetEditorText = SetSqlEditorText;
         _templatesViewModel.ResultReady += OnTemplateResultReady;
         _templatesViewModel.PropertyChanged += OnTemplatesViewModelPropertyChanged;
 
@@ -82,8 +82,16 @@ public partial class MainWindow : Window
         _chartViewModel.LoadDailyTrendCommand.Execute(null);
 
         Loaded += OnLoaded;
-        IsVisibleChanged += (_, _) => UpdateLiveConsumer();
-        StateChanged += (_, _) => UpdateLiveConsumer();
+        IsVisibleChanged += (_, _) =>
+        {
+            UpdateLiveConsumer();
+            UpdateWebViewsBackgroundState();
+        };
+        StateChanged += (_, _) =>
+        {
+            UpdateLiveConsumer();
+            UpdateWebViewsBackgroundState();
+        };
 
         ShowSection(HomeTabRoot, MenuHome);
     }
@@ -94,11 +102,24 @@ public partial class MainWindow : Window
         return Path.Combine(app.DataDirectory, app.Settings.LogDirectory, "resourcemonitor.db");
     }
 
+    private static string ChartHtmlUri =>
+        new Uri(Path.Combine(AppContext.BaseDirectory, "Assets", "chart.html")).AbsoluteUri;
+
+    // Todo WebView2 da janela passa por aqui: ambiente compartilhado (pasta de dados em
+    // %LOCALAPPDATA%, ver App.GetWebViewEnvironmentAsync) e registro pra
+    // UpdateWebViewsBackgroundState conseguir suspender os que já existem.
+    private async Task InitializeWebViewAsync(WebView2 webView)
+    {
+        var environment = await ((App)Application.Current).GetWebViewEnvironmentAsync();
+        await webView.EnsureCoreWebView2Async(environment);
+        _initializedWebViews.Add(webView);
+    }
+
+    // Só o gráfico da Home sobe junto com a janela — os outros WebView2 (cada um é um processo
+    // renderer próprio, ~20–25 MB) são criados na primeira vez que a tela deles é aberta.
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
-        var chartHtmlUri = new Uri(Path.Combine(AppContext.BaseDirectory, "Assets", "chart.html")).AbsoluteUri;
-
-        await HomeLiveChartWebView.EnsureCoreWebView2Async();
+        await InitializeWebViewAsync(HomeLiveChartWebView);
         HomeLiveChartWebView.CoreWebView2.NavigationCompleted += (_, _) =>
         {
             _homeWebViewReady = true;
@@ -108,31 +129,55 @@ public partial class MainWindow : Window
                 _ = HomeLiveChartWebView.ExecuteScriptAsync($"renderSamples({json})");
             }
         };
-        HomeLiveChartWebView.CoreWebView2.Navigate(chartHtmlUri);
+        HomeLiveChartWebView.CoreWebView2.Navigate(ChartHtmlUri);
+    }
 
-        await LiveChartWebView.EnsureCoreWebView2Async();
-        LiveChartWebView.CoreWebView2.NavigationCompleted += (_, _) =>
-        {
-            _liveWebViewReady = true;
-            if (_pendingLiveJson is { } json)
-            {
-                _pendingLiveJson = null;
-                _ = LiveChartWebView.ExecuteScriptAsync($"renderSamples({json})");
-            }
-        };
-        LiveChartWebView.CoreWebView2.Navigate(chartHtmlUri);
+    private bool _webViewsInBackground;
 
-        await TrendChartWebView.EnsureCoreWebView2Async();
-        TrendChartWebView.CoreWebView2.NavigationCompleted += (_, _) =>
+    // Janela fora da vista (bandeja ou minimizada): pede pros WebView2 já criados liberarem
+    // memória. Escondida na bandeja, também suspende — TrySuspendAsync exige o controle
+    // invisível, o que minimizado não é. Ao voltar, o WebView2 retoma sozinho quando fica
+    // visível; aqui só devolve o nível de memória normal.
+    private async void UpdateWebViewsBackgroundState()
+    {
+        var inBackground = !IsVisible || WindowState == WindowState.Minimized;
+        if (inBackground == _webViewsInBackground)
         {
-            _trendWebViewReady = true;
-            if (_pendingTrendJson is { } json)
+            return;
+        }
+
+        _webViewsInBackground = inBackground;
+        var targetLevel = inBackground
+            ? CoreWebView2MemoryUsageTargetLevel.Low
+            : CoreWebView2MemoryUsageTargetLevel.Normal;
+        foreach (var webView in _initializedWebViews)
+        {
+            webView.CoreWebView2.MemoryUsageTargetLevel = targetLevel;
+        }
+
+        if (IsVisible)
+        {
+            return;
+        }
+
+        // Deixa os próprios controles processarem que ficaram invisíveis antes de suspender.
+        await Dispatcher.Yield(DispatcherPriority.Background);
+        foreach (var webView in _initializedWebViews.ToList())
+        {
+            if (IsVisible)
             {
-                _pendingTrendJson = null;
-                _ = TrendChartWebView.ExecuteScriptAsync($"renderDailyTrend({json})");
+                return;
             }
-        };
-        TrendChartWebView.CoreWebView2.Navigate(chartHtmlUri);
+
+            try
+            {
+                await webView.CoreWebView2.TrySuspendAsync();
+            }
+            catch (Exception)
+            {
+                // Suspender é só economia de memória — se o WebView2 recusar, segue normal.
+            }
+        }
     }
 
     private bool _reportWebViewInitStarted;
@@ -208,42 +253,21 @@ public partial class MainWindow : Window
     private async void OnMenuDadosClick(object sender, RoutedEventArgs e)
     {
         ShowSection(TemplatesTabRoot, MenuDados);
-        await EnsureSqlEditorWebViewInitializedAsync();
         await _templatesViewModel.EnsureInitialPeriodAsync();
     }
 
-    private bool _sqlEditorWebViewInitStarted;
-
-    // Mesmo padrão lazy-init de EventsChartWebView/ReportWebView — inicializado só na
-    // primeira vez que a tela é aberta. Diferente dos outros: aqui a gente REALMENTE espera
-    // o NavigationCompleted (via TaskCompletionSource) antes de retornar — Executar logo em
-    // seguida (EnsureInitialPeriodAsync chama ExecutarAsync) precisa ler o texto do editor
-    // via getValue(), que só existe depois que o setValue(comando inicial) já rodou.
-    private async Task EnsureSqlEditorWebViewInitializedAsync()
+    // Tab insere 4 espaços em vez de mover o foco pra fora do editor — sem isso digitar SQL
+    // com indentação vira impossível.
+    private void OnSqlEditorPreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
-        if (_sqlEditorWebViewInitStarted)
+        if (e.Key != Key.Tab || Keyboard.Modifiers != ModifierKeys.None)
         {
             return;
         }
 
-        _sqlEditorWebViewInitStarted = true;
-
-        var editorHtmlUri = new Uri(Path.Combine(AppContext.BaseDirectory, "Assets", "sql-editor.html")).AbsoluteUri;
-        var navigationCompleted = new TaskCompletionSource();
-
-        await SqlEditorWebView.EnsureCoreWebView2Async();
-        SqlEditorWebView.CoreWebView2.NavigationCompleted += (_, _) =>
-        {
-            _sqlEditorWebViewReady = true;
-            navigationCompleted.TrySetResult();
-        };
-        SqlEditorWebView.CoreWebView2.Navigate(editorHtmlUri);
-
-        await navigationCompleted.Task;
-
-        var initialText = _pendingSqlEditorText ?? _templatesViewModel.SelectedTemplate?.Command ?? string.Empty;
-        _pendingSqlEditorText = null;
-        await SqlEditorWebView.ExecuteScriptAsync($"setValue({JsonSerializer.Serialize(initialText)})");
+        SqlEditorTextBox.SelectedText = "    ";
+        SqlEditorTextBox.CaretIndex = SqlEditorTextBox.SelectionStart + SqlEditorTextBox.SelectionLength;
+        e.Handled = true;
     }
 
     // RowDefinition não herda DataContext de forma confiável no WPF ({Binding} direto na
@@ -260,29 +284,6 @@ public partial class MainWindow : Window
         var visible = _templatesViewModel.IsEditorVisible;
         EditorRow.Height = new GridLength(visible ? 180 : 0);
         EditorSplitterRow.Height = new GridLength(visible ? 6 : 0);
-    }
-
-    private void SetSqlEditorText(string text)
-    {
-        if (_sqlEditorWebViewReady)
-        {
-            _ = SqlEditorWebView.ExecuteScriptAsync($"setValue({JsonSerializer.Serialize(text)})");
-        }
-        else
-        {
-            _pendingSqlEditorText = text;
-        }
-    }
-
-    private async Task<string> GetSqlEditorTextAsync()
-    {
-        if (!_sqlEditorWebViewReady)
-        {
-            return string.Empty;
-        }
-
-        var json = await SqlEditorWebView.ExecuteScriptAsync("getValue()");
-        return JsonSerializer.Deserialize<string>(json) ?? string.Empty;
     }
 
     // Colunas não são conhecidas em tempo de compilação (resultado de SQL arbitrário) —
@@ -366,9 +367,58 @@ public partial class MainWindow : Window
         return -1;
     }
 
-    private void OnMenuGraficosDadosCorrentesClick(object sender, RoutedEventArgs e) => ShowSection(ChartLiveTabRoot, MenuGraficos);
+    private bool _liveWebViewInitStarted;
 
-    private void OnMenuGraficosTendenciaClick(object sender, RoutedEventArgs e) => ShowSection(ChartTrendTabRoot, MenuGraficos);
+    // Criado só na primeira vez que a tela abre, já visível (mesmo padrão de Eventos/Relatórios).
+    // Amostras que chegarem antes ficam em _pendingLiveJson.
+    private async void OnMenuGraficosDadosCorrentesClick(object sender, RoutedEventArgs e)
+    {
+        ShowSection(ChartLiveTabRoot, MenuGraficos);
+
+        if (_liveWebViewInitStarted)
+        {
+            return;
+        }
+
+        _liveWebViewInitStarted = true;
+        await InitializeWebViewAsync(LiveChartWebView);
+        LiveChartWebView.CoreWebView2.NavigationCompleted += (_, _) =>
+        {
+            _liveWebViewReady = true;
+            if (_pendingLiveJson is { } json)
+            {
+                _pendingLiveJson = null;
+                _ = LiveChartWebView.ExecuteScriptAsync($"renderSamples({json})");
+            }
+        };
+        LiveChartWebView.CoreWebView2.Navigate(ChartHtmlUri);
+    }
+
+    private bool _trendWebViewInitStarted;
+
+    // Idem Dados Correntes. A tendência já é carregada no construtor e espera em _pendingTrendJson.
+    private async void OnMenuGraficosTendenciaClick(object sender, RoutedEventArgs e)
+    {
+        ShowSection(ChartTrendTabRoot, MenuGraficos);
+
+        if (_trendWebViewInitStarted)
+        {
+            return;
+        }
+
+        _trendWebViewInitStarted = true;
+        await InitializeWebViewAsync(TrendChartWebView);
+        TrendChartWebView.CoreWebView2.NavigationCompleted += (_, _) =>
+        {
+            _trendWebViewReady = true;
+            if (_pendingTrendJson is { } json)
+            {
+                _pendingTrendJson = null;
+                _ = TrendChartWebView.ExecuteScriptAsync($"renderDailyTrend({json})");
+            }
+        };
+        TrendChartWebView.CoreWebView2.Navigate(ChartHtmlUri);
+    }
 
     // Iniciado só na primeira vez que a seção é aberta (mesmo padrão de Relatórios/Ajuda) —
     // também é chamado por "Ver gráfico" (aba Dados), que pode chegar aqui antes do usuário
@@ -391,9 +441,7 @@ public partial class MainWindow : Window
 
         _eventsWebViewInitStarted = true;
 
-        var chartHtmlUri = new Uri(Path.Combine(AppContext.BaseDirectory, "Assets", "chart.html")).AbsoluteUri;
-
-        await EventsChartWebView.EnsureCoreWebView2Async();
+        await InitializeWebViewAsync(EventsChartWebView);
         EventsChartWebView.CoreWebView2.NavigationCompleted += (_, _) =>
         {
             _eventsWebViewReady = true;
@@ -431,7 +479,7 @@ public partial class MainWindow : Window
                 // Mensagem que não veio do marcador de eventos (ou formato inesperado); ignora.
             }
         };
-        EventsChartWebView.CoreWebView2.Navigate(chartHtmlUri);
+        EventsChartWebView.CoreWebView2.Navigate(ChartHtmlUri);
     }
 
     private EpisodeDetailWindow? _episodeDetailWindow;
@@ -449,13 +497,13 @@ public partial class MainWindow : Window
         }
     }
 
-    // Iniciado só na primeira vez que a seção é aberta (não no Loaded, junto com os outros
-    // WebView2) — inicializar vários WebView2 ao mesmo tempo numa seção ainda não visível
-    // causava o conteúdo não renderizar até o usuário navegar por outra seção antes.
-    // Mesmo padrão de espera real (TaskCompletionSource) de EnsureSqlEditorWebViewInitializedAsync
-    // — aqui é o que permite já disparar "Gerar relatório" com o período padrão (última semana)
-    // assim que abre, em vez de esperar o usuário clicar. Cursor de espera cobre a inicialização
-    // do WebView2 (a parte que pode demorar de verdade em máquinas mais lentas).
+    // Iniciado só na primeira vez que a seção é aberta (não no Loaded) — inicializar vários
+    // WebView2 ao mesmo tempo numa seção ainda não visível causava o conteúdo não renderizar
+    // até o usuário navegar por outra seção antes. Aqui a gente espera de verdade o
+    // NavigationCompleted (TaskCompletionSource) — é o que permite já disparar "Gerar
+    // relatório" com o período padrão (última semana) assim que abre, em vez de esperar o
+    // usuário clicar. Cursor de espera cobre a inicialização do WebView2 (a parte que pode
+    // demorar de verdade em máquinas mais lentas).
     private async void OnMenuRelatoriosClick(object sender, RoutedEventArgs e)
     {
         ShowSection(ReportTabRoot, MenuRelatorios);
@@ -472,7 +520,7 @@ public partial class MainWindow : Window
             var reportHtmlUri = new Uri(Path.Combine(AppContext.BaseDirectory, "Assets", "report.html")).AbsoluteUri;
             var navigationCompleted = new TaskCompletionSource();
 
-            await ReportWebView.EnsureCoreWebView2Async();
+            await InitializeWebViewAsync(ReportWebView);
             ReportWebView.CoreWebView2.NavigationCompleted += (_, _) =>
             {
                 _reportWebViewReady = true;
@@ -501,7 +549,7 @@ public partial class MainWindow : Window
         _helpWebViewInitStarted = true;
 
         var helpHtmlUri = new Uri(Path.Combine(AppContext.BaseDirectory, "Assets", "ajuda.html")).AbsoluteUri;
-        await HelpWebView.EnsureCoreWebView2Async();
+        await InitializeWebViewAsync(HelpWebView);
         HelpWebView.CoreWebView2.Navigate(helpHtmlUri);
     }
 

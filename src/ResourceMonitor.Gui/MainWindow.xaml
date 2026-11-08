@@ -461,7 +461,13 @@
 
                 <Border Grid.Row="2" BorderBrush="Gray" BorderThickness="1" CornerRadius="3"
                         Visibility="{Binding IsEditorVisible, Converter={StaticResource BoolToVis}}">
-                    <wv2:WebView2 x:Name="SqlEditorWebView" />
+                    <!-- Tab insere 4 espaços em vez de tirar o foco (ver OnSqlEditorPreviewKeyDown). -->
+                    <TextBox x:Name="SqlEditorTextBox"
+                             Text="{Binding EditorText, UpdateSourceTrigger=PropertyChanged}"
+                             AcceptsReturn="True" TextWrapping="Wrap" BorderThickness="0" Padding="6"
+                             VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                             FontFamily="Cascadia Code, Consolas, Courier New" FontSize="13"
+                             SpellCheck.IsEnabled="False" PreviewKeyDown="OnSqlEditorPreviewKeyDown" />
                 </Border>
 
                 <!-- Arrasta pra redimensionar o editor SQL em relação à grade de resultado
