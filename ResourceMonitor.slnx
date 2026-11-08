@@ -4,4 +4,7 @@
     <Project Path="src/ResourceMonitor.Gui/ResourceMonitor.Gui.csproj" />
     <Project Path="src/ResourceMonitor/ResourceMonitor.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ResourceMonitor.Core.Tests/ResourceMonitor.Core.Tests.csproj" />
+  </Folder>
 </Solution>

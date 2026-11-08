@@ -35,18 +35,22 @@ public static class UpdateChecker
                 ? urlProperty.GetString()
                 : null;
 
-            if (tagName is null || !TryParseVersion(tagName, out var latest) || !TryParseVersion(currentVersion, out var current))
-            {
-                return NoUpdate;
-            }
-
-            return latest > current ? new UpdateCheckResult(true, tagName, releaseUrl) : NoUpdate;
+            return tagName is not null && IsNewer(tagName, currentVersion)
+                ? new UpdateCheckResult(true, tagName, releaseUrl)
+                : NoUpdate;
         }
         catch
         {
             return NoUpdate;
         }
     }
+
+    // "v0.4.1" contra "0.4.0" — aceita o "v" das tags do GitHub. Qualquer uma das duas que não
+    // for uma versão válida conta como "não é mais nova" (melhor não avisar do que avisar errado).
+    internal static bool IsNewer(string latestTag, string currentVersion) =>
+        TryParseVersion(latestTag, out var latest)
+        && TryParseVersion(currentVersion, out var current)
+        && latest > current;
 
     private static bool TryParseVersion(string text, out Version version) =>
         Version.TryParse(text.TrimStart('v', 'V'), out version!);

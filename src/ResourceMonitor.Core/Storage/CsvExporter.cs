@@ -63,7 +63,7 @@ public static class CsvExporter
         File.WriteAllText(filePath, builder.ToString(), Encoding.UTF8);
     }
 
-    private static string Escape(string value)
+    internal static string Escape(string value)
     {
         if (value.Contains(',') || value.Contains('"') || value.Contains('\n'))
         {

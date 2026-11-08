@@ -139,7 +139,7 @@ public sealed class ResourceSampler
     // nome original.
     private const int MaxAncestorDepth = 32;
 
-    private static string ResolveAttributionName(ProcessUsage usage, Dictionary<int, int> parentOf, Dictionary<int, string> nameOf)
+    internal static string ResolveAttributionName(ProcessUsage usage, Dictionary<int, int> parentOf, Dictionary<int, string> nameOf)
     {
         if (!EmbeddedHostNames.Contains(usage.Name))
         {
@@ -229,7 +229,7 @@ public sealed class ResourceSampler
         return (excludedCpuSeconds, excludedRamBytes);
     }
 
-    private static bool MatchesAnyPattern(string processName, IReadOnlyList<string> patterns)
+    internal static bool MatchesAnyPattern(string processName, IReadOnlyList<string> patterns)
     {
         foreach (var pattern in patterns)
         {

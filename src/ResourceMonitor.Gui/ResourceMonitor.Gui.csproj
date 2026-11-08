@@ -2,17 +2,9 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net10.0-windows</TargetFramework>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
-    <Version>0.4.0</Version>
-    <!-- Sem isso, o SDK anexa o hash do commit ao InformationalVersion (ex: "0.3.0+fb86859...")
-         por padrão dentro de um repo git — bom pra rastreabilidade de build, ruim pro título
-         da janela, que só quer "v0.3.0" limpo. -->
-    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <!-- Os .xml de documentação dos pacotes (WebView2) só servem pro IntelliSense; fora do pacote. -->
     <PublishReferencesDocumentationFiles>false</PublishReferencesDocumentationFiles>
   </PropertyGroup>

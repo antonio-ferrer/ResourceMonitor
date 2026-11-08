@@ -1,0 +1,19 @@
+<Project>
+
+  <!-- Configuração comum aos projetos do repositório (app e testes). Cada .csproj fica só com o
+       que é específico dele. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <!-- Versão única do app (GUI, console e Core). É o número que aparece no título da janela e
+         que o workflow de release confere contra a tag (vX.Y.Z). -->
+    <Version>0.4.0</Version>
+    <!-- Sem isso, o SDK anexa o hash do commit ao InformationalVersion (ex: "0.4.0+fb86859...")
+         por padrão dentro de um repo git — bom pra rastreabilidade de build, ruim pro título
+         da janela, que só quer "v0.4.0" limpo. -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+
+</Project>
