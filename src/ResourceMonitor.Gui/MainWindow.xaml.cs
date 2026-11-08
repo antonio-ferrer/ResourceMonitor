@@ -10,6 +10,7 @@ using System.Windows.Input;
 using System.Windows.Navigation;
 using ResourceMonitor.Gui.ViewModels;
 using Application = System.Windows.Application;
+using MenuItem = System.Windows.Controls.MenuItem;
 
 namespace ResourceMonitor.Gui;
 

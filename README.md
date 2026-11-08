@@ -20,7 +20,7 @@ App para Windows que monitora o uso de CPU, RAM e disco, e registra automaticame
 
 ## Arquitetura
 
-Solução com 3 projetos (.NET 8, Windows):
+Solução com 3 projetos (.NET 10, Windows):
 
 | Projeto | O que é |
 |---|---|
@@ -36,7 +36,7 @@ Config e banco de dados (`resourcemonitor.db`) ficam em `%LOCALAPPDATA%\Resource
 
 **[⬇ Baixar a última versão](https://github.com/antonio-ferrer/ResourceMonitor/releases/latest)**
 
-Requisitos: Windows 10/11 de 64 bits com o [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0) instalado.
+Requisitos: Windows 10/11 de 64 bits com o [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) instalado. O app usa o runtime da máquina, então mantenha-o atualizado — as correções de segurança do .NET chegam por ele.
 
 Cada release inclui um arquivo `.sha256` junto do `.zip`. Pra conferir a integridade do download no Windows:
 
@@ -48,7 +48,7 @@ Compare o valor mostrado com o conteúdo do `.sha256` correspondente.
 
 ## Rodando a partir do código-fonte
 
-Pré-requisitos: [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0), Windows.
+Pré-requisitos: [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0), Windows.
 
 ```powershell
 git clone https://github.com/antonio-ferrer/ResourceMonitor.git
