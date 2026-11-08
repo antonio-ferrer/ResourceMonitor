@@ -14,7 +14,7 @@ public partial class HomeViewModel : ObservableObject
 {
     private readonly MonitoringService _monitoringService;
 
-    // Lido a cada atualização, não guardado: Configurações > Salvar troca o objeto inteiro em
+    // Lido a cada atualização, não guardado: gravar as Configurações troca o objeto inteiro em
     // App.Settings, e uma referência capturada no construtor ficaria mostrando o antigo.
     private readonly Func<MonitorSettings> _getSettings;
 
@@ -81,7 +81,7 @@ public partial class HomeViewModel : ObservableObject
     }
 
     // Chamado também toda vez que a Home é mostrada (MainWindow.ShowSection) — cobre mudanças
-    // feitas em Configurações (Salvar, "Iniciar com o Windows") sem precisar de evento próprio.
+    // feitas em Configurações (gravadas ao sair da tela, "Iniciar com o Windows") sem evento próprio.
     public void RefreshConfigSummary()
     {
         var settings = _getSettings();

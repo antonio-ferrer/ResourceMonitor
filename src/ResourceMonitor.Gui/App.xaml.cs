@@ -269,6 +269,7 @@ public partial class App : Application
 
     public void ExitApplication()
     {
+        (MainWindow as MainWindow)?.SaveSettingsIfChanged();
         IsExiting = true;
         if (_notifyIcon is not null)
         {
@@ -277,6 +278,13 @@ public partial class App : Application
         }
 
         Shutdown();
+    }
+
+    // Logoff/desligamento do Windows com o app aberto: grava o que estava editado.
+    protected override void OnSessionEnding(SessionEndingCancelEventArgs e)
+    {
+        (MainWindow as MainWindow)?.SaveSettingsIfChanged();
+        base.OnSessionEnding(e);
     }
 
     protected override void OnExit(ExitEventArgs e)

@@ -4,7 +4,7 @@ using ResourceMonitor.Diagnostics;
 namespace ResourceMonitor.Configuration;
 
 // Lembra se o usuário deixou o monitoramento ligado ou desligado na GUI, pra próxima abertura
-// voltar do mesmo jeito. Fica fora do appsettings.json: o Salvar das Configurações regrava
+// voltar do mesmo jeito. Fica fora do appsettings.json: a gravação das Configurações regrava
 // aquele arquivo inteiro e não deve mexer nesse estado.
 public static class MonitoringStateStore
 {

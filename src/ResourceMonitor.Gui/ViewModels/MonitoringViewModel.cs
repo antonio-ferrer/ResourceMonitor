@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Text.Json;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using ResourceMonitor.Alerting;
@@ -33,8 +34,13 @@ public partial class MonitoringViewModel : ObservableObject
     [ObservableProperty] private double ramPercent;
     [ObservableProperty] private double diskIoPercent;
 
-    [ObservableProperty] private bool isRunning;
-    [ObservableProperty] private string statusText = "Parado.";
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(StatePillText), nameof(EditHintText))]
+    private bool isRunning;
+
+    // Mensagens pontuais (alerta, erro, limpeza). O estado ligado/parado fica no selo ao lado.
+    [ObservableProperty] private string statusText = string.Empty;
+    [ObservableProperty] private string savedNoticeText = string.Empty;
     [ObservableProperty] private string lastSampleText = "Sem amostras ainda.";
     [ObservableProperty] private bool startWithWindows;
     [ObservableProperty] private string newExcludedProcessPattern = string.Empty;
@@ -49,6 +55,12 @@ public partial class MonitoringViewModel : ObservableObject
 
     public bool CanEditSettings => !IsRunning;
 
+    public string StatePillText => IsRunning ? "● Monitorando" : "○ Parado";
+
+    public string EditHintText => IsRunning
+        ? "Pare o monitoramento para editar as configurações."
+        : "As mudanças são gravadas sozinhas ao iniciar, trocar de tela, minimizar ou fechar.";
+
     public MonitoringViewModel(
         MonitoringService monitoringService, MonitorSettings initialSettings, string dataDirectory,
         ITrayNotifier trayNotifier, Func<string> getDatabasePath)
@@ -61,14 +73,6 @@ public partial class MonitoringViewModel : ObservableObject
         LoadFrom(initialSettings);
         IsRunning = _monitoringService.IsRunning;
         StartWithWindows = AutoStartManager.IsEnabled();
-
-        // Se o monitoramento já foi iniciado antes da janela existir (boot via --minimized,
-        // ver App.xaml.cs), o texto de status precisa refletir isso — senão fica preso em
-        // "Parado." mesmo com os botões já mostrando IsRunning = true.
-        if (IsRunning)
-        {
-            StatusText = "Monitorando...";
-        }
 
         _monitoringService.SampleCollected += OnSampleCollected;
         _monitoringService.AlertRaised += OnAlertRaised;
@@ -113,6 +117,8 @@ public partial class MonitoringViewModel : ObservableObject
 
     private MonitorSettings BuildSettings() => new()
     {
+        // Não tem campo na tela — preserva o valor que veio do arquivo.
+        LogDirectory = ((App)Application.Current).Settings.LogDirectory,
         SampleIntervalSeconds = SampleIntervalSeconds,
         ConsecutiveBreachesToAlert = ConsecutiveBreachesToAlert,
         ConsecutiveRecoveriesToClear = ConsecutiveRecoveriesToClear,
@@ -154,27 +160,38 @@ public partial class MonitoringViewModel : ObservableObject
         ExcludedProcesses.Remove(pattern);
     }
 
-    [RelayCommand]
-    private void Save()
+    // Sem botão Salvar: a janela chama isso ao iniciar, trocar de tela, minimizar, fechar e
+    // sair (ver MainWindow/App). Só grava se algo mudou em relação ao que está em vigor. Os
+    // valores passam pelo mesmo ajuste do carregamento (ex: intervalo 0 vira 1) e voltam pros
+    // campos já ajustados.
+    public void SaveIfChanged()
     {
-        var settings = BuildSettings();
+        var app = (App)Application.Current;
+        var settings = AppSettingsStore.Normalize(BuildSettings());
+        if (JsonSerializer.Serialize(settings) == JsonSerializer.Serialize(app.Settings))
+        {
+            return;
+        }
+
         AppSettingsStore.Save(settings);
-        ((App)Application.Current).Settings = settings;
-        StatusText = "Configurações salvas.";
+        app.Settings = settings;
+        LoadFrom(settings);
+        SavedNoticeText = $"Configurações salvas às {DateTime.Now:HH:mm:ss}";
     }
 
     [RelayCommand(CanExecute = nameof(CanStart))]
     private void RestoreDefaults()
     {
         LoadFrom(new MonitorSettings());
-        StatusText = "Valores padrão restaurados nos campos. Clique Salvar pra persistir.";
+        StatusText = "Valores padrão restaurados.";
     }
 
     [RelayCommand(CanExecute = nameof(CanStart))]
     private void Start()
     {
-        var settings = BuildSettings();
-        ((App)Application.Current).StartMonitoringByUser(settings);
+        SaveIfChanged();
+        var app = (App)Application.Current;
+        app.StartMonitoringByUser(app.Settings);
         // Estado/StatusText são atualizados via RunningStateChanged (ver OnRunningStateChanged) —
         // mesmo caminho usado quando o start vem do menu da bandeja, não só desse botão.
     }
@@ -241,11 +258,11 @@ public partial class MonitoringViewModel : ObservableObject
             if (isRunning)
             {
                 _lastFaultMessage = null;
-                StatusText = "Monitorando...";
+                StatusText = string.Empty;
             }
             else
             {
-                StatusText = _lastFaultMessage is { } message ? $"Parado por erro: {message}" : "Parado.";
+                StatusText = _lastFaultMessage is { } message ? $"Parado por erro: {message}" : string.Empty;
             }
         });
     }

@@ -58,7 +58,8 @@ public static class AppSettingsStore
 
     // Valores impossíveis vindos do arquivo (editado à mão, versão antiga) viram o mínimo
     // aceitável — um intervalo 0, por exemplo, derrubava o loop de monitoramento na largada.
-    internal static MonitorSettings Normalize(MonitorSettings settings)
+    // Público: a GUI aplica o mesmo ajuste antes de gravar o que foi digitado.
+    public static MonitorSettings Normalize(MonitorSettings settings)
     {
         settings.SampleIntervalSeconds = Math.Max(1, settings.SampleIntervalSeconds);
         settings.ConsecutiveBreachesToAlert = Math.Max(1, settings.ConsecutiveBreachesToAlert);

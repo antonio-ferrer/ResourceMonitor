@@ -89,6 +89,11 @@ public partial class MainWindow : Window
         };
         StateChanged += (_, _) =>
         {
+            if (WindowState == WindowState.Minimized)
+            {
+                SaveSettingsIfChanged();
+            }
+
             UpdateLiveConsumer();
             UpdateWebViewsBackgroundState();
         };
@@ -190,6 +195,12 @@ public partial class MainWindow : Window
     // Também liga/desliga o monitor ao vivo (ver UpdateLiveConsumer).
     private void ShowSection(UIElement section, MenuItem activeMenuItem)
     {
+        // Saindo de Configurações: grava o que foi editado (não há botão Salvar).
+        if (ReferenceEquals(_currentSection, MonitoringTabRoot) && !ReferenceEquals(section, MonitoringTabRoot))
+        {
+            SaveSettingsIfChanged();
+        }
+
         foreach (var candidate in new UIElement[]
         {
             HomeTabRoot, MonitoringTabRoot, TemplatesTabRoot,
@@ -620,8 +631,12 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
+    // Chamado também pelo App ao sair e quando o Windows encerra a sessão.
+    public void SaveSettingsIfChanged() => _monitoringViewModel.SaveIfChanged();
+
     protected override void OnClosing(CancelEventArgs e)
     {
+        SaveSettingsIfChanged();
         var app = (App)Application.Current;
         if (!app.IsExiting)
         {
