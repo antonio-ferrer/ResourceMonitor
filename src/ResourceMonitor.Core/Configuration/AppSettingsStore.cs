@@ -67,6 +67,7 @@ public static class AppSettingsStore
         settings.TopProcessCount = Math.Max(1, settings.TopProcessCount);
         settings.PreEventSeconds = Math.Max(0, settings.PreEventSeconds);
         settings.PostEventSeconds = Math.Max(0, settings.PostEventSeconds);
+        settings.PeakRetentionDays = Math.Max(0, settings.PeakRetentionDays);
         if (string.IsNullOrWhiteSpace(settings.LogDirectory))
         {
             settings.LogDirectory = new MonitorSettings().LogDirectory;

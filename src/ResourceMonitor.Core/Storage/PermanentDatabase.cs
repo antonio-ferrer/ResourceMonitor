@@ -303,6 +303,34 @@ public sealed class PermanentDatabase : IDisposable
         transaction.Commit();
     }
 
+    // Retenção da base de picos (MonitorSettings.PeakRetentionDays): apaga os eventos anteriores
+    // ao corte, com seus processos e a janela de amostras. A tendência diária e os templates
+    // ficam. Sem VACUUM: em WAL as páginas liberadas são reaproveitadas pelas próximas gravações.
+    // Um End cujo Start foi apagado é ignorado na listagem (GetAlertEpisodes emparelha pelo Start).
+    // Devolve quantos episódios (Starts) saíram.
+    public int PurgeAlertsOlderThan(DateTimeOffset cutoff)
+    {
+        using var transaction = _connection.BeginTransaction();
+        using var command = _connection.CreateCommand();
+        command.Transaction = transaction;
+        command.Parameters.AddWithValue("$cutoff", FormatTimestamp(cutoff.ToUniversalTime()));
+
+        command.CommandText = "SELECT COUNT(*) FROM AlertEvents WHERE EventType = 'Start' AND TimestampUtc < $cutoff;";
+        var purgedEpisodes = Convert.ToInt32(command.ExecuteScalar(), CultureInfo.InvariantCulture);
+
+        command.CommandText = """
+            DELETE FROM DiskSamples WHERE SampleId IN (
+                SELECT Id FROM Samples WHERE AlertEventId IN (SELECT Id FROM AlertEvents WHERE TimestampUtc < $cutoff));
+            DELETE FROM Samples WHERE AlertEventId IN (SELECT Id FROM AlertEvents WHERE TimestampUtc < $cutoff);
+            DELETE FROM AlertProcessSnapshots WHERE AlertEventId IN (SELECT Id FROM AlertEvents WHERE TimestampUtc < $cutoff);
+            DELETE FROM AlertEvents WHERE TimestampUtc < $cutoff;
+            """;
+        command.ExecuteNonQuery();
+
+        transaction.Commit();
+        return purgedEpisodes;
+    }
+
     // "Heartbeat" chamado a cada tick enquanto o alerta segue ativo — se o app for encerrado
     // sem um End (crash, kill), esse é o último instante confirmado em que o alerta ainda
     // estava de pé, usado como duração mínima conhecida na listagem.

@@ -8,6 +8,11 @@ public sealed class MonitorSettings
     public int TopProcessCount { get; set; } = 5;
     public int PreEventSeconds { get; set; } = 60;
     public int PostEventSeconds { get; set; } = 60;
+
+    // Por quantos dias a base de picos (eventos, processos, janela de amostras) é mantida.
+    // 0 = para sempre. A tendência diária não entra nessa conta.
+    public int PeakRetentionDays { get; set; } = 365;
+
     public string LogDirectory { get; set; } = "logs";
     public List<string> ExcludedProcesses { get; set; } = new() { "ResourceMonitor*" };
     public ThresholdSettings Thresholds { get; set; } = new();

@@ -453,6 +453,18 @@
                                 </ItemsControl>
                             </StackPanel>
                         </Border>
+
+                        <Border Style="{StaticResource SectionBorder}">
+                            <StackPanel>
+                                <TextBlock Text="HISTÓRICO" Style="{StaticResource SectionHeader}" />
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="Manter base de picos por (dias)" Style="{StaticResource FieldLabel}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                    <TextBox Text="{Binding PeakRetentionDays, UpdateSourceTrigger=PropertyChanged}" Width="60" />
+                                    <TextBlock Text="0 = guardar para sempre; a tendência diária é sempre mantida" Foreground="Gray" FontSize="11"
+                                               VerticalAlignment="Center" Margin="12,0,0,0" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
 
                     <DockPanel Margin="0,0,0,12">

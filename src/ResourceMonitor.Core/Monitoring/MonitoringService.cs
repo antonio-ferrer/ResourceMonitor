@@ -125,6 +125,10 @@ public sealed class MonitoringService : IDisposable
             // normalmente (processo morto/kill) — sem isso ficariam "Em andamento" pra sempre.
             permanent.MarkOrphanedAlertsInterrupted();
 
+            // Retenção: roda ao iniciar e na primeira amostra de cada novo dia (hora local).
+            var lastPurgeDay = DateOnly.FromDateTime(DateTime.Now);
+            PurgeExpiredPeaks(permanent, settings);
+
             captureCoordinator = new EventCaptureCoordinator(settings);
 
             using var timer = new PeriodicTimer(TimeSpan.FromSeconds(settings.SampleIntervalSeconds));
@@ -197,6 +201,13 @@ public sealed class MonitoringService : IDisposable
                         lastDailyAggregateSample = sample.Timestamp;
                     }
 
+                    var sampleDay = DateOnly.FromDateTime(sample.Timestamp.LocalDateTime);
+                    if (sampleDay != lastPurgeDay)
+                    {
+                        lastPurgeDay = sampleDay;
+                        PurgeExpiredPeaks(permanent, settings);
+                    }
+
                     captureCoordinator.FlushReady(sample.Timestamp, recentSamples, permanent);
                     consecutiveFailures = 0;
                 }
@@ -246,6 +257,25 @@ public sealed class MonitoringService : IDisposable
 
             permanent?.Dispose();
             diskMonitor?.Dispose();
+        }
+    }
+
+    // 0 dias = guardar para sempre. Falha aqui (banco ocupado...) não para o monitoramento:
+    // registra e tenta de novo no próximo dia ou no próximo início.
+    internal static void PurgeExpiredPeaks(PermanentDatabase permanent, MonitorSettings settings)
+    {
+        if (settings.PeakRetentionDays <= 0)
+        {
+            return;
+        }
+
+        try
+        {
+            permanent.PurgeAlertsOlderThan(DateTimeOffset.UtcNow.AddDays(-settings.PeakRetentionDays));
+        }
+        catch (Exception ex)
+        {
+            ErrorLog.Write("Retenção", "Falha ao apagar picos antigos.", ex);
         }
     }
 

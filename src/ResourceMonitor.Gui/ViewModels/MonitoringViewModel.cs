@@ -30,6 +30,7 @@ public partial class MonitoringViewModel : ObservableObject
     [ObservableProperty] private int topProcessCount;
     [ObservableProperty] private int preEventSeconds;
     [ObservableProperty] private int postEventSeconds;
+    [ObservableProperty] private int peakRetentionDays;
     [ObservableProperty] private double cpuPercent;
     [ObservableProperty] private double ramPercent;
     [ObservableProperty] private double diskIoPercent;
@@ -89,6 +90,7 @@ public partial class MonitoringViewModel : ObservableObject
         TopProcessCount = settings.TopProcessCount;
         PreEventSeconds = settings.PreEventSeconds;
         PostEventSeconds = settings.PostEventSeconds;
+        PeakRetentionDays = settings.PeakRetentionDays;
         CpuPercent = settings.Thresholds.CpuPercent;
         RamPercent = settings.Thresholds.RamPercent;
         DiskIoPercent = settings.Thresholds.DiskIoPercent;
@@ -124,6 +126,7 @@ public partial class MonitoringViewModel : ObservableObject
         TopProcessCount = TopProcessCount,
         PreEventSeconds = PreEventSeconds,
         PostEventSeconds = PostEventSeconds,
+        PeakRetentionDays = PeakRetentionDays,
         ExcludedProcesses = ExcludedProcesses.ToList(),
         Thresholds = new ThresholdSettings
         {
