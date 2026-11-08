@@ -1,0 +1,58 @@
+# Ao subir uma tag vX.Y.Z: confere a versão, compila, testa, gera o zip + .sha256 da GUI e cria
+# a release no GitHub como RASCUNHO — nada fica público até alguém revisar e clicar Publish.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: windows-latest
+    permissions:
+      contents: write # só este job cria a release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+
+      - name: Confere a tag contra a versão do projeto
+        shell: pwsh
+        run: |
+          $version = dotnet msbuild src/ResourceMonitor.Gui/ResourceMonitor.Gui.csproj -getProperty:Version
+          if ($env:GITHUB_REF_NAME -ne "v$version") {
+            Write-Output "::error::A tag $env:GITHUB_REF_NAME não bate com a Version do Directory.Build.props ($version)."
+            exit 1
+          }
+          "VERSION=$version" >> $env:GITHUB_ENV
+
+      - name: Build (warnings como erro)
+        run: dotnet build -c Release -warnaserror
+
+      - name: Testes
+        run: dotnet test --no-build -c Release
+
+      - name: Publica e empacota
+        shell: pwsh
+        run: |
+          $name = "ResourceMonitor.Gui-v$env:VERSION-win-x64"
+          dotnet publish src/ResourceMonitor.Gui/ResourceMonitor.Gui.csproj -c Release -r win-x64 --self-contained false -o "publish/$name"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Compress-Archive -Path "publish/$name/*" -DestinationPath "publish/$name.zip"
+          $hash = (Get-FileHash "publish/$name.zip" -Algorithm SHA256).Hash.ToLower()
+          [IO.File]::WriteAllText("publish/$name.zip.sha256", "$hash  $name.zip`n")
+          Write-Output "SHA256: $hash"
+          "ASSET=$name" >> $env:GITHUB_ENV
+
+      - name: Cria a release em rascunho
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create $env:GITHUB_REF_NAME "publish/$env:ASSET.zip" "publish/$env:ASSET.zip.sha256" `
+            --draft --title $env:GITHUB_REF_NAME --generate-notes

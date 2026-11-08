@@ -1,0 +1,48 @@
+# Build + testes + checagem de pacotes vulneráveis a cada push/PR na main.
+# Actions fixadas por hash de commit (versão no comentário); o Dependabot mantém atualizadas.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build (warnings como erro)
+        run: dotnet build --no-restore -c Release -warnaserror
+
+      - name: Testes
+        run: dotnet test --no-build -c Release
+
+      - name: Pacotes com vulnerabilidade conhecida
+        shell: pwsh
+        run: |
+          $data = dotnet list package --vulnerable --include-transitive --format json | Out-String | ConvertFrom-Json
+          $found = foreach ($project in $data.projects) {
+            foreach ($framework in $project.frameworks) {
+              foreach ($package in @($framework.topLevelPackages) + @($framework.transitivePackages)) {
+                if ($package.vulnerabilities) { "$($package.id) $($package.resolvedVersion) ($($project.path))" }
+              }
+            }
+          }
+          if ($found) {
+            $found | ForEach-Object { Write-Output "::error::Pacote vulnerável: $_" }
+            exit 1
+          }
+          Write-Output "Nenhum pacote com vulnerabilidade conhecida."

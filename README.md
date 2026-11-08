@@ -1,5 +1,7 @@
 # ResourceMonitor
 
+[![CI](https://github.com/antonio-ferrer/ResourceMonitor/actions/workflows/ci.yml/badge.svg)](https://github.com/antonio-ferrer/ResourceMonitor/actions/workflows/ci.yml)
+
 App para Windows que monitora o uso de CPU, RAM e disco, e registra automaticamente o que aconteceu no PC quando os recursos ficam sob pressão — com relatórios que descontam o próprio consumo do monitor da conta, pra não distorcer a leitura.
 
 ## Funcionalidades
@@ -20,15 +22,16 @@ App para Windows que monitora o uso de CPU, RAM e disco, e registra automaticame
 
 ## Arquitetura
 
-Solução com 3 projetos (.NET 10, Windows):
+Solução com 3 projetos (.NET 10, Windows), mais os testes automatizados:
 
 | Projeto | O que é |
 |---|---|
 | [`ResourceMonitor.Core`](src/ResourceMonitor.Core) | Biblioteca compartilhada: amostragem de recursos, avaliação de limites/alertas, persistência (SQLite) e o serviço de monitoramento (`MonitoringService`) usado tanto pelo console quanto pela GUI. |
 | [`ResourceMonitor`](src/ResourceMonitor) | App de console — roda o monitoramento do início ao fim do processo, imprime no terminal. |
 | [`ResourceMonitor.Gui`](src/ResourceMonitor.Gui) | App WPF com bandeja, controle de start/stop, edição de configuração, dados/gráficos, relatórios imprimíveis e ajuda. |
+| [`ResourceMonitor.Core.Tests`](tests/ResourceMonitor.Core.Tests) | Testes (xUnit) do Core: regras de alerta, banco, templates, configurações, log de erros e leitura de processos. |
 
-Config e banco de dados (`resourcemonitor.db`) ficam em `%LOCALAPPDATA%\ResourceMonitor\`, compartilhados pelos dois apps — não importa qual você abre, ambos leem/escrevem o mesmo estado.
+Config e banco de dados (`resourcemonitor.db`) ficam em `%LOCALAPPDATA%\ResourceMonitor\`, compartilhados pelos dois apps — não importa qual você abre, ambos leem/escrevem o mesmo estado. Erros inesperados são registrados em `%LOCALAPPDATA%\ResourceMonitor\logs\errors.log` (limitado a ~2 MB).
 
 ## Download
 
@@ -60,7 +63,12 @@ dotnet run --project src/ResourceMonitor
 
 # GUI
 dotnet run --project src/ResourceMonitor.Gui
+
+# Testes
+dotnet test
 ```
+
+A cada push, o [CI](.github/workflows/ci.yml) compila, roda os testes e falha se algum pacote tiver vulnerabilidade conhecida. Uma tag `vX.Y.Z` dispara o [workflow de release](.github/workflows/release.yml), que gera o `.zip` e o `.sha256` e cria a release como rascunho pra revisão.
 
 ## Créditos
 

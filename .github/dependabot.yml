@@ -1,0 +1,13 @@
+# Uma checagem por semana: pacotes NuGet e actions do CI. O Dependabot só abre o pull request
+# (o CI roda nele); nada entra na main sem aprovação.
+version: 2
+updates:
+  - package-ecosystem: nuget
+    directory: /
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
