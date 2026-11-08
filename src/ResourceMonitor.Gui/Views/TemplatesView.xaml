@@ -1,0 +1,78 @@
+<UserControl x:Class="ResourceMonitor.Gui.Views.TemplatesView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             >
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <!-- Altura ajustada em code-behind (OnTemplatesEditorVisibilityChanged), não
+                 por binding — RowDefinition não herda DataContext de forma confiável no
+                 WPF, então {Binding} aqui simplesmente não reagia à troca do toggle. -->
+            <RowDefinition x:Name="EditorRow" Height="0" />
+            <RowDefinition x:Name="EditorSplitterRow" Height="0" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="1*" MinHeight="80" />
+        </Grid.RowDefinitions>
+
+        <!-- Seletor de template existente — some quando IsCreatingNew (ver painel abaixo) -->
+        <WrapPanel Grid.Row="0" Margin="0,0,0,8" Visibility="{Binding IsCreatingNew, Converter={StaticResource InverseBoolToVis}}">
+            <Label Content="Template:" VerticalAlignment="Center" />
+            <ComboBox ItemsSource="{Binding Templates}" SelectedItem="{Binding SelectedTemplate}"
+                      DisplayMemberPath="Name" Width="220" Margin="4,0,16,0" VerticalAlignment="Center" />
+            <Button Content="Novo Template" Command="{Binding IniciarNovoTemplateCommand}" Padding="12,4" Margin="0,0,8,0" />
+            <Button Content="Salvar alterações" Command="{Binding SalvarAlteracoesCommand}" Padding="12,4" Margin="0,0,8,0"
+                    ToolTip="Salva o SQL editado de volta nesse template — só disponível pra templates criados por você" />
+            <Button Content="Excluir" Command="{Binding ExcluirTemplateCommand}" Padding="12,4"
+                    ToolTip="Só disponível pra templates criados por você — os 3 padrão não podem ser excluídos" />
+        </WrapPanel>
+
+        <!-- Criação de novo template — só aparece com IsCreatingNew -->
+        <WrapPanel Grid.Row="0" Margin="0,0,0,8" Visibility="{Binding IsCreatingNew, Converter={StaticResource BoolToVis}}">
+            <Label Content="Nome:" VerticalAlignment="Center" />
+            <TextBox Text="{Binding NewTemplateName, UpdateSourceTrigger=PropertyChanged}"
+                      Width="220" Margin="4,0,16,0" VerticalAlignment="Center" />
+            <Button Content="Salvar" Command="{Binding SalvarNovoTemplateCommand}" Padding="12,4" Margin="0,0,8,0" />
+            <Button Content="Cancelar" Command="{Binding CancelarNovoTemplateCommand}" Padding="12,4" Margin="0,0,16,0" />
+            <TextBlock Text="{Binding NewTemplateError}" Foreground="Red" VerticalAlignment="Center" />
+        </WrapPanel>
+
+        <WrapPanel Grid.Row="1" Margin="0,0,0,8">
+            <Label Content="De:" VerticalAlignment="Center" />
+            <DatePicker SelectedDate="{Binding PeriodFrom}" VerticalAlignment="Center" Margin="4,0,16,0" />
+            <Label Content="Até:" VerticalAlignment="Center" />
+            <DatePicker SelectedDate="{Binding PeriodTo}" VerticalAlignment="Center" Margin="4,0,16,0"
+                        ToolTip="$from/$to ficam disponíveis pro SQL do template, formatados em UTC ISO-8601" />
+            <Button Content="Executar" Command="{Binding ExecutarCommand}" Padding="12,4" Margin="0,0,8,0" />
+            <Button Content="Exportar CSV" Command="{Binding ExportarCsvCommand}" Padding="12,4" Margin="0,0,8,0" />
+            <Button Content="Editor" Command="{Binding AlternarEditorCommand}" Padding="12,4"
+                    ToolTip="Mostra/esconde o editor SQL" />
+        </WrapPanel>
+
+        <Border Grid.Row="2" BorderBrush="Gray" BorderThickness="1" CornerRadius="3"
+                Visibility="{Binding IsEditorVisible, Converter={StaticResource BoolToVis}}">
+            <!-- Tab insere 4 espaços em vez de tirar o foco (ver OnSqlEditorPreviewKeyDown). -->
+            <TextBox x:Name="SqlEditorTextBox"
+                     Text="{Binding EditorText, UpdateSourceTrigger=PropertyChanged}"
+                     AcceptsReturn="True" TextWrapping="Wrap" BorderThickness="0" Padding="6"
+                     VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                     FontFamily="Cascadia Code, Consolas, Courier New" FontSize="13"
+                     SpellCheck.IsEnabled="False" PreviewKeyDown="OnSqlEditorPreviewKeyDown" />
+        </Border>
+
+        <!-- Arrasta pra redimensionar o editor SQL em relação à grade de resultado
+             abaixo (linha 2 acima / linha 5 abaixo, ver ResizeBehavior). -->
+        <GridSplitter Grid.Row="3" Height="6" HorizontalAlignment="Stretch" VerticalAlignment="Center"
+                      Background="#DDDDDD" ResizeBehavior="PreviousAndNext" ShowsPreview="True"
+                      Visibility="{Binding IsEditorVisible, Converter={StaticResource BoolToVis}}" />
+
+        <TextBlock Grid.Row="4" Text="{Binding StatusText}" Margin="0,8,0,8" />
+
+        <!-- Colunas construídas em code-behind (ver OnTemplateResultReady) — o
+             resultado de uma consulta arbitrária não tem colunas fixas em tempo de
+             compilação. Duplo-clique numa linha abre o popup de pico quando o
+             resultado tem StartEventId+Metric (ver OnTemplateResultsGridDoubleClick). -->
+        <DataGrid Grid.Row="5" x:Name="TemplateResultsGrid" AutoGenerateColumns="False" IsReadOnly="True"
+                  MouseDoubleClick="OnTemplateResultsGridDoubleClick" />
+    </Grid>
+</UserControl>

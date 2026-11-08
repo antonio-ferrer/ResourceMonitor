@@ -1,0 +1,188 @@
+<UserControl x:Class="ResourceMonitor.Gui.Views.HomeView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:charts="clr-namespace:ResourceMonitor.Gui.Controls"
+             >
+    <ScrollViewer Margin="16" VerticalScrollBarVisibility="Auto">
+        <StackPanel>
+            <Border Visibility="{Binding UpdateAvailable, Converter={StaticResource BoolToVis}}"
+                    BorderBrush="#F0B429" BorderThickness="1" CornerRadius="3" Background="#FFFBEB"
+                    Padding="12,10" Margin="0,0,0,16">
+                <TextBlock TextWrapping="Wrap">
+                    <Run Text="{Binding UpdateAvailableMessage, Mode=OneWay}" />
+                    <Hyperlink NavigateUri="{Binding UpdateReleaseUrl, Mode=OneWay}" RequestNavigate="OnExternalLinkRequestNavigate">Ver no GitHub</Hyperlink>
+                </TextBlock>
+            </Border>
+
+            <TextBlock Text="Visão geral" FontSize="20" FontWeight="Bold" Margin="0,0,0,4" />
+            <TextBlock Text="{Binding Hardware.MachineName}" Foreground="Gray" FontSize="12" Margin="0,0,0,16" />
+
+            <UniformGrid Columns="2" Margin="0,0,0,16">
+                <Border BorderBrush="#E2E5EA" BorderThickness="1" CornerRadius="3" Background="#FAFBFC" Padding="16" Margin="0,0,10,0">
+                    <StackPanel>
+                        <TextBlock Text="RESUMO DO COMPUTADOR" FontSize="11" FontWeight="Bold" Foreground="Gray" Margin="0,0,0,12" />
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Nome" Foreground="Gray" Margin="0,0,14,7" />
+                            <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding Hardware.MachineName}" FontWeight="Bold" Margin="0,0,0,7" />
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Sistema" Foreground="Gray" Margin="0,0,14,7" />
+                            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Hardware.OperatingSystem}" FontWeight="Bold" Margin="0,0,0,7" />
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="Processador" Foreground="Gray" Margin="0,0,14,7" />
+                            <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding Hardware.ProcessorName}" FontWeight="Bold" Margin="0,0,0,7" TextWrapping="Wrap" />
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="Memória RAM" Foreground="Gray" Margin="0,0,14,0" />
+                            <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding Hardware.RamTotalGb, StringFormat='{}{0:N1} GB'}" FontWeight="Bold" />
+                        </Grid>
+                        <ItemsControl ItemsSource="{Binding Hardware.Disks}" Margin="0,7,0,0">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="0,0,0,4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="{Binding DriveName}" Foreground="Gray" Margin="0,0,14,0" />
+                                        <TextBlock Grid.Column="1" FontWeight="Bold">
+                                            <Run Text="{Binding TotalGb, StringFormat='{}{0:N1} GB total', Mode=OneWay}" />
+                                            <Run Text=" · " />
+                                            <Run Text="{Binding FreeGb, StringFormat='{}{0:N1} GB livres', Mode=OneWay}" />
+                                        </TextBlock>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+
+                <Border BorderBrush="#E2E5EA" BorderThickness="1" CornerRadius="3" Background="#FAFBFC" Padding="16" Margin="10,0,0,0">
+                    <StackPanel>
+                        <TextBlock Text="RESUMO DE CONFIGURAÇÕES" FontSize="11" FontWeight="Bold" Foreground="Gray" Margin="0,0,0,12" />
+
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,10" DataContext="{Binding MonitoringActive}">
+                            <TextBlock Text="Monitoramento" Width="200" VerticalAlignment="Center" />
+                            <Border Style="{StaticResource ActivePillStyle}">
+                                <TextBlock Text="{Binding Converter={StaticResource BoolToActiveLabelConverter}}"
+                                           Foreground="{Binding Converter={StaticResource BoolToActiveForegroundConverter}}"
+                                           FontSize="11" FontWeight="Bold" />
+                            </Border>
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,10" DataContext="{Binding StartWithWindowsActive}">
+                            <TextBlock Text="Iniciar com o Windows" Width="200" VerticalAlignment="Center" />
+                            <Border Style="{StaticResource ActivePillStyle}">
+                                <TextBlock Text="{Binding Converter={StaticResource BoolToActiveLabelConverter}}"
+                                           Foreground="{Binding Converter={StaticResource BoolToActiveForegroundConverter}}"
+                                           FontSize="11" FontWeight="Bold" />
+                            </Border>
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,10" DataContext="{Binding ExcludedProcessesActive}">
+                            <TextBlock Text="Processos excluídos" Width="200" VerticalAlignment="Center" />
+                            <Border Style="{StaticResource ActivePillStyle}">
+                                <TextBlock Text="{Binding Converter={StaticResource BoolToActiveLabelConverter}}"
+                                           Foreground="{Binding Converter={StaticResource BoolToActiveForegroundConverter}}"
+                                           FontSize="11" FontWeight="Bold" />
+                            </Border>
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,10" DataContext="{Binding CustomDiskThresholdsActive}">
+                            <TextBlock Text="Limites de disco personalizados" Width="200" VerticalAlignment="Center" />
+                            <Border Style="{StaticResource ActivePillStyle}">
+                                <TextBlock Text="{Binding Converter={StaticResource BoolToActiveLabelConverter}}"
+                                           Foreground="{Binding Converter={StaticResource BoolToActiveForegroundConverter}}"
+                                           FontSize="11" FontWeight="Bold" />
+                            </Border>
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                            <TextBlock Text="Limites CPU / RAM / I/O" Width="200" VerticalAlignment="Center" />
+                            <TextBlock Text="{Binding ThresholdsSummary}" Foreground="Gray" VerticalAlignment="Center" />
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                            <TextBlock Text="Intervalo de amostragem" Width="200" VerticalAlignment="Center" />
+                            <TextBlock Text="{Binding SampleIntervalSummary}" Foreground="Gray" VerticalAlignment="Center" />
+                        </StackPanel>
+
+                        <Border BorderBrush="#E2E5EA" BorderThickness="0,1,0,0" Margin="0,10,0,0" Padding="0,10,0,0" HorizontalAlignment="Stretch">
+                            <TextBlock HorizontalAlignment="Right">
+                                <Hyperlink Click="OnEditSettingsClick">Editar configurações →</Hyperlink>
+                            </TextBlock>
+                        </Border>
+                    </StackPanel>
+                </Border>
+            </UniformGrid>
+
+            <Border BorderBrush="#E2E5EA" BorderThickness="1" CornerRadius="3" Background="#FAFBFC" Padding="16">
+                <StackPanel>
+                    <TextBlock Text="MONITOR DE RECURSOS EM TEMPO REAL" FontSize="11" FontWeight="Bold" Foreground="Gray" Margin="0,0,0,10" />
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="220" />
+                        </Grid.ColumnDefinitions>
+
+                        <charts:LineChart Grid.Column="0" Height="220" Data="{Binding LiveChart}" MaxXLabels="8" />
+
+                        <StackPanel Grid.Column="1" Margin="12,0,0,0">
+                            <TextBlock Text="Top 5 processos" FontWeight="Bold" Margin="0,0,0,6" />
+                            <TabControl>
+                                <TabItem Header="CPU">
+                                    <ItemsControl ItemsSource="{Binding TopByCpu}" Margin="0,6,0,0">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Margin="0,0,0,2" TextTrimming="CharacterEllipsis">
+                                                    <Run Text="{Binding Converter={StaticResource GroupedProcessNameConverter}, Mode=OneWay}" />
+                                                    <Run Text=" — " />
+                                                    <Run Text="{Binding CpuPercent, StringFormat='{}{0:N1}%', Mode=OneWay}" />
+                                                </TextBlock>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </TabItem>
+                                <TabItem Header="RAM">
+                                    <ItemsControl ItemsSource="{Binding TopByRam}" Margin="0,6,0,0">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Margin="0,0,0,2" TextTrimming="CharacterEllipsis">
+                                                    <Run Text="{Binding Converter={StaticResource GroupedProcessNameConverter}, Mode=OneWay}" />
+                                                    <Run Text=" — " />
+                                                    <Run Text="{Binding RamMb, StringFormat='{}{0:N0} MB', Mode=OneWay}" />
+                                                </TextBlock>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </TabItem>
+                                <TabItem Header="Disco I/O">
+                                    <ItemsControl ItemsSource="{Binding TopByIo}" Margin="0,6,0,0">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Margin="0,0,0,2" TextTrimming="CharacterEllipsis">
+                                                    <Run Text="{Binding Converter={StaticResource GroupedProcessNameConverter}, Mode=OneWay}" />
+                                                    <Run Text=" — " />
+                                                    <Run Text="{Binding IoKbPerSec, StringFormat='{}{0:N0} KB/s', Mode=OneWay}" />
+                                                </TextBlock>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </TabItem>
+                            </TabControl>
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <TextBlock HorizontalAlignment="Right" Margin="0,16,0,0" Foreground="Gray" FontSize="11">
+                <Hyperlink NavigateUri="https://icons8.com" RequestNavigate="OnExternalLinkRequestNavigate">Ícone por Icons8</Hyperlink>
+            </TextBlock>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

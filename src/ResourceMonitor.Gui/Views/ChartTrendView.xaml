@@ -1,0 +1,16 @@
+<UserControl x:Class="ResourceMonitor.Gui.Views.ChartTrendView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:charts="clr-namespace:ResourceMonitor.Gui.Controls"
+             >
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="{Binding TrendStatusText}" Margin="0,0,0,8" FontWeight="Bold" />
+        <charts:LineChart Grid.Row="1" Data="{Binding TrendChart}"
+                          EmptyText="Sem dados de tendência ainda (aguarde algumas capturas de ~5 em 5min)." />
+    </Grid>
+</UserControl>

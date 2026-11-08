@@ -1,0 +1,74 @@
+<!-- Estilos e conversores comuns a todas as telas (Views/). Mesclado em App.xaml. O estilo de
+     CheckBox sem x:Key vira o padrão de toda CheckBox do app. -->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:conv="clr-namespace:ResourceMonitor.Gui.Converters">
+    <conv:MetricDisplayConverter x:Key="MetricDisplayConverter" />
+    <conv:LocalDateTimeConverter x:Key="LocalDateTimeConverter" />
+    <conv:DurationMinutesDisplayConverter x:Key="DurationMinutesDisplayConverter" />
+    <conv:DiskUsageFromFreeConverter x:Key="DiskUsageFromFreeConverter" />
+    <conv:GroupedProcessNameConverter x:Key="GroupedProcessNameConverter" />
+    <conv:BoolToActiveLabelConverter x:Key="BoolToActiveLabelConverter" />
+    <conv:BoolToActiveBackgroundConverter x:Key="BoolToActiveBackgroundConverter" />
+    <conv:BoolToActiveForegroundConverter x:Key="BoolToActiveForegroundConverter" />
+    <conv:InverseBooleanToVisibilityConverter x:Key="InverseBoolToVis" />
+    <BooleanToVisibilityConverter x:Key="BoolToVis" />
+
+    <Style x:Key="ActivePillStyle" TargetType="Border">
+        <Setter Property="CornerRadius" Value="9" />
+        <Setter Property="Padding" Value="9,3" />
+        <Setter Property="Background" Value="{Binding Converter={StaticResource BoolToActiveBackgroundConverter}}" />
+    </Style>
+
+    <!-- Item ativo: sublinhado + negrito, sem cor de métrica (CPU/RAM/I/O ficam reservadas pros gráficos) -->
+    <Style x:Key="MainMenuItemStyle" TargetType="MenuItem">
+        <Setter Property="Padding" Value="14,11" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="BorderThickness" Value="0,0,0,2" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Style.Triggers>
+            <Trigger Property="Tag" Value="Active">
+                <Setter Property="FontWeight" Value="Bold" />
+                <Setter Property="BorderBrush" Value="#14171D" />
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- Sem x:Key: vira o estilo implícito de TODO CheckBox da janela (Monitoramento,
+         Limpeza, filtros de Gráficos/Relatórios) — troca a caixinha quadrada padrão do
+         Windows por um quadrado arredondado + check desenhado, sem precisar marcar cada
+         CheckBox individualmente. -->
+    <Style TargetType="CheckBox">
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="Padding" Value="7,0,0,0" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="CheckBox">
+                    <StackPanel Orientation="Horizontal" Background="Transparent" Cursor="Hand">
+                        <Border x:Name="Box" Width="16" Height="16" CornerRadius="4"
+                                BorderBrush="#C3C8D1" BorderThickness="1.5" Background="White"
+                                VerticalAlignment="Center">
+                            <Path x:Name="Check" Data="M 3,8.5 L 6.7,12 L 13,4" Stretch="Uniform" Margin="2.5"
+                                  Stroke="White" StrokeThickness="2.2" StrokeStartLineCap="Round"
+                                  StrokeEndLineCap="Round" StrokeLineJoin="Round" Visibility="Collapsed" />
+                        </Border>
+                        <ContentPresenter Margin="{TemplateBinding Padding}" VerticalAlignment="Center" RecognizesAccessKey="True" />
+                    </StackPanel>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Box" Property="Background" Value="#14171D" />
+                            <Setter TargetName="Box" Property="BorderBrush" Value="#14171D" />
+                            <Setter TargetName="Check" Property="Visibility" Value="Visible" />
+                        </Trigger>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Box" Property="BorderBrush" Value="#14171D" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.5" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+</ResourceDictionary>

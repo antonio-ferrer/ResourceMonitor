@@ -1,0 +1,15 @@
+<UserControl x:Class="ResourceMonitor.Gui.Views.ChartLiveView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:charts="clr-namespace:ResourceMonitor.Gui.Controls"
+             >
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="{Binding LiveStatusText, StringFormat='Dados correntes (ao vivo): {0}'}" Margin="0,0,0,8" FontWeight="Bold" />
+        <charts:LineChart Grid.Row="1" Data="{Binding LiveChart}" MaxXLabels="8" />
+    </Grid>
+</UserControl>

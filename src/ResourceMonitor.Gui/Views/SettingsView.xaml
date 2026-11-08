@@ -1,0 +1,222 @@
+<UserControl x:Class="ResourceMonitor.Gui.Views.SettingsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             >
+    <!-- Configurações: sem botão Salvar — grava sozinho ao iniciar, trocar de tela,
+         minimizar, fechar e sair (ver MonitoringViewModel.SaveIfChanged). -->
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <ScrollViewer.Resources>
+            <Style x:Key="SectionBorder" TargetType="Border">
+                <Setter Property="BorderBrush" Value="#E2E5EA" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="CornerRadius" Value="3" />
+                <Setter Property="Background" Value="#FAFBFC" />
+                <Setter Property="Padding" Value="16,12" />
+                <Setter Property="Margin" Value="0,0,0,12" />
+            </Style>
+            <Style x:Key="SectionHeader" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="11" />
+                <Setter Property="FontWeight" Value="Bold" />
+                <Setter Property="Foreground" Value="Gray" />
+                <Setter Property="Margin" Value="0,0,0,10" />
+            </Style>
+            <Style x:Key="FieldLabel" TargetType="TextBlock">
+                <Setter Property="Foreground" Value="#4B5563" />
+                <Setter Property="Margin" Value="0,0,0,4" />
+            </Style>
+            <Style x:Key="FieldCell" TargetType="StackPanel">
+                <Setter Property="Margin" Value="0,0,16,0" />
+            </Style>
+        </ScrollViewer.Resources>
+
+        <StackPanel Margin="16">
+            <!-- Estado e controles -->
+            <Border Style="{StaticResource SectionBorder}">
+                <StackPanel>
+                    <DockPanel LastChildFill="True">
+                        <Border DockPanel.Dock="Left" CornerRadius="9" Padding="10,3" VerticalAlignment="Center" Margin="0,0,12,0"
+                                Background="{Binding IsRunning, Converter={StaticResource BoolToActiveBackgroundConverter}}">
+                            <TextBlock Text="{Binding StatePillText}" FontWeight="Bold"
+                                       Foreground="{Binding IsRunning, Converter={StaticResource BoolToActiveForegroundConverter}}" />
+                        </Border>
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button Content="Iniciar" Command="{Binding StartCommand}" Padding="12,4" Margin="0,0,8,0" />
+                            <Button Content="Parar" Command="{Binding StopCommand}" Padding="12,4" Margin="0,0,16,0" />
+                            <CheckBox Content="Iniciar com o Windows" IsChecked="{Binding StartWithWindows}" VerticalAlignment="Center" />
+                        </StackPanel>
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock Text="{Binding LastSampleText}" Foreground="#4B5563" />
+                            <TextBlock Text="{Binding StatusText}" FontWeight="Bold" TextWrapping="Wrap">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Style.Triggers>
+                                            <Trigger Property="Text" Value="">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                            </Trigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </StackPanel>
+                    </DockPanel>
+                    <TextBlock Text="{Binding EditHintText}" Foreground="Gray" FontSize="11" Margin="0,8,0,0" />
+                </StackPanel>
+            </Border>
+
+            <StackPanel IsEnabled="{Binding CanEditSettings}">
+                <Border Style="{StaticResource SectionBorder}">
+                    <StackPanel>
+                        <TextBlock Text="LIMITES DE ALERTA" Style="{StaticResource SectionHeader}" />
+                        <UniformGrid Columns="3">
+                            <StackPanel Style="{StaticResource FieldCell}">
+                                <TextBlock Text="CPU (%)" Style="{StaticResource FieldLabel}" />
+                                <TextBox Text="{Binding CpuPercent, UpdateSourceTrigger=PropertyChanged}" />
+                            </StackPanel>
+                            <StackPanel Style="{StaticResource FieldCell}">
+                                <TextBlock Text="RAM (%)" Style="{StaticResource FieldLabel}" />
+                                <TextBox Text="{Binding RamPercent, UpdateSourceTrigger=PropertyChanged}" />
+                            </StackPanel>
+                            <StackPanel Style="{StaticResource FieldCell}">
+                                <TextBlock Text="I/O de disco (%)" Style="{StaticResource FieldLabel}" />
+                                <TextBox Text="{Binding DiskIoPercent, UpdateSourceTrigger=PropertyChanged}" />
+                            </StackPanel>
+                        </UniformGrid>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource SectionBorder}">
+                    <StackPanel>
+                        <TextBlock Text="AMOSTRAGEM E DISPARO" Style="{StaticResource SectionHeader}" />
+                        <UniformGrid Columns="3">
+                            <StackPanel Style="{StaticResource FieldCell}">
+                                <TextBlock Text="Intervalo de amostragem (s)" Style="{StaticResource FieldLabel}" />
+                                <TextBox Text="{Binding SampleIntervalSeconds, UpdateSourceTrigger=PropertyChanged}" />
+                            </StackPanel>
+                            <StackPanel Style="{StaticResource FieldCell}">
+                                <TextBlock Text="Amostras seguidas p/ disparar" Style="{StaticResource FieldLabel}" />
+                                <TextBox Text="{Binding ConsecutiveBreachesToAlert, UpdateSourceTrigger=PropertyChanged}" />
+                            </StackPanel>
+                            <StackPanel Style="{StaticResource FieldCell}">
+                                <TextBlock Text="Amostras seguidas p/ recuperar" Style="{StaticResource FieldLabel}" />
+                                <TextBox Text="{Binding ConsecutiveRecoveriesToClear, UpdateSourceTrigger=PropertyChanged}" />
+                            </StackPanel>
+                        </UniformGrid>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource SectionBorder}">
+                    <StackPanel>
+                        <TextBlock Text="JANELA DE PICO" Style="{StaticResource SectionHeader}" />
+                        <UniformGrid Columns="3">
+                            <StackPanel Style="{StaticResource FieldCell}">
+                                <TextBlock Text="Segundos antes do pico" Style="{StaticResource FieldLabel}" />
+                                <TextBox Text="{Binding PreEventSeconds, UpdateSourceTrigger=PropertyChanged}" />
+                            </StackPanel>
+                            <StackPanel Style="{StaticResource FieldCell}">
+                                <TextBlock Text="Segundos depois do pico" Style="{StaticResource FieldLabel}" />
+                                <TextBox Text="{Binding PostEventSeconds, UpdateSourceTrigger=PropertyChanged}" />
+                            </StackPanel>
+                            <StackPanel Style="{StaticResource FieldCell}">
+                                <TextBlock Text="Top N processos no snapshot" Style="{StaticResource FieldLabel}" />
+                                <TextBox Text="{Binding TopProcessCount, UpdateSourceTrigger=PropertyChanged}" />
+                            </StackPanel>
+                        </UniformGrid>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource SectionBorder}">
+                    <StackPanel>
+                        <TextBlock Text="PROCESSOS QUE NÃO DISPARAM OS LIMITES" Style="{StaticResource SectionHeader}" />
+                        <ItemsControl ItemsSource="{Binding ExcludedProcesses}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border BorderBrush="#C3C8D1" BorderThickness="1" CornerRadius="3" Background="White" Margin="0,0,8,8" Padding="8,2,2,2">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="{Binding}" VerticalAlignment="Center" Margin="0,0,4,0" />
+                                            <Button Content="✕" ToolTip="Remover" Padding="5,0" Background="Transparent" BorderThickness="0" Cursor="Hand"
+                                                    Command="{Binding DataContext.RemoveExcludedProcessCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                    CommandParameter="{Binding}" />
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBox Text="{Binding NewExcludedProcessPattern, UpdateSourceTrigger=PropertyChanged}" Width="220" Margin="0,0,8,0" />
+                            <Button Content="Adicionar" Command="{Binding AddExcludedProcessCommand}" Padding="12,2" />
+                            <TextBlock Text="aceita * como coringa, ex: notepad*" Foreground="Gray" FontSize="11" VerticalAlignment="Center" Margin="12,0,0,0" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource SectionBorder}">
+                    <StackPanel>
+                        <TextBlock Text="ESPAÇO LIVRE MÍNIMO POR DISCO (%)" Style="{StaticResource SectionHeader}" />
+                        <ItemsControl ItemsSource="{Binding DiskThresholds}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border BorderBrush="#C3C8D1" BorderThickness="1" CornerRadius="3" Background="White" Margin="0,0,8,0" Padding="8,4">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="{Binding DriveName}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                            <TextBox Text="{Binding MinFreePercent, UpdateSourceTrigger=PropertyChanged}" Width="50" />
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource SectionBorder}">
+                    <StackPanel>
+                        <TextBlock Text="HISTÓRICO" Style="{StaticResource SectionHeader}" />
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="Manter base de picos por (dias)" Style="{StaticResource FieldLabel}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                            <TextBox Text="{Binding PeakRetentionDays, UpdateSourceTrigger=PropertyChanged}" Width="60" />
+                            <TextBlock Text="0 = guardar para sempre; a tendência diária é sempre mantida" Foreground="Gray" FontSize="11"
+                                       VerticalAlignment="Center" Margin="12,0,0,0" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+
+            <DockPanel Margin="0,0,0,12">
+                <Button DockPanel.Dock="Left" Content="Restaurar padrões" Command="{Binding RestoreDefaultsCommand}" Padding="12,4" />
+                <TextBlock Text="{Binding SavedNoticeText}" Foreground="Gray" FontSize="11" HorizontalAlignment="Right" VerticalAlignment="Center" />
+            </DockPanel>
+
+            <!-- Realocado da antiga aba Dados: não é uma consulta, é ação administrativa,
+                 então fica em Configurações em vez da tela de Templates. Borda avermelhada:
+                 apaga dados. -->
+            <Border Style="{StaticResource SectionBorder}" BorderBrush="#F3C4C4">
+                <StackPanel>
+                    <TextBlock Text="LIMPEZA DE DADOS" Style="{StaticResource SectionHeader}" />
+                    <DockPanel>
+                        <Button DockPanel.Dock="Right" Content="Limpar selecionados" Command="{Binding ClearSelectedCommand}" Padding="12,4" />
+                        <WrapPanel VerticalAlignment="Center">
+                            <CheckBox Content="Tendência diária" IsChecked="{Binding ClearTrendSelected}"
+                                      VerticalAlignment="Center" Margin="0,0,16,0" />
+                            <CheckBox Content="Base de picos" IsChecked="{Binding ClearPeaksSelected}"
+                                      VerticalAlignment="Center" Margin="0,0,16,0"
+                                      ToolTip="Eventos, amostras da janela de pico e snapshots de processos" />
+                        </WrapPanel>
+                    </DockPanel>
+                </StackPanel>
+            </Border>
+
+            <TextBlock HorizontalAlignment="Right" Margin="0,4,0,0" Foreground="Gray" FontSize="11">
+                <Hyperlink NavigateUri="https://icons8.com" RequestNavigate="OnExternalLinkRequestNavigate">Ícone por Icons8</Hyperlink>
+            </TextBlock>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

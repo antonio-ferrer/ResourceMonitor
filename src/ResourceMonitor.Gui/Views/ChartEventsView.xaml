@@ -1,0 +1,31 @@
+<UserControl x:Class="ResourceMonitor.Gui.Views.ChartEventsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:charts="clr-namespace:ResourceMonitor.Gui.Controls"
+             >
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <WrapPanel Grid.Row="0" Margin="0,0,0,8">
+            <Label Content="De:" VerticalAlignment="Center" />
+            <DatePicker SelectedDate="{Binding PeriodFrom}" VerticalAlignment="Center" Margin="4,0,16,0" />
+            <Label Content="Até:" VerticalAlignment="Center" />
+            <DatePicker SelectedDate="{Binding PeriodTo}" VerticalAlignment="Center" Margin="4,0,16,0" />
+            <CheckBox Content="CPU" IsChecked="{Binding IncludeCpu}" VerticalAlignment="Center" Margin="0,0,10,0" />
+            <CheckBox Content="RAM" IsChecked="{Binding IncludeRam}" VerticalAlignment="Center" Margin="0,0,10,0" />
+            <CheckBox Content="Disco I/O" IsChecked="{Binding IncludeDiscoIo}" VerticalAlignment="Center" Margin="0,0,16,0" />
+            <Button Content="Carregar" Command="{Binding CarregarEventosDePicosCommand}" Padding="12,4" VerticalAlignment="Center" />
+        </WrapPanel>
+
+        <TextBlock Grid.Row="1" Text="{Binding EventosStatusText}" Margin="0,0,0,8" />
+
+        <!-- Clicar num marcador (bolinha) abre EpisodeDetailWindow com os processos
+             daquele pico — ver OnEventsChartMarkerClicked. Passar o mouse mostra os valores do dia. -->
+        <charts:LineChart Grid.Row="2" Data="{Binding EventsChart}" MarkerClicked="OnEventsChartMarkerClicked"
+                          EmptyText="Nenhum dado histórico encontrado pro período." />
+    </Grid>
+</UserControl>
