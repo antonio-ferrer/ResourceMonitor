@@ -10,7 +10,7 @@
 
   <ItemGroup>
     <!-- Roda pelo Microsoft.Testing.Platform (ver "test" no global.json), sem VSTest. -->
-    <PackageReference Include="xunit.v3" Version="4.0.2" />
+    <PackageReference Include="xunit.v3" Version="4.0.3" />
   </ItemGroup>
 
   <ItemGroup>
