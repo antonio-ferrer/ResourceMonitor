@@ -9,7 +9,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.14" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="11.0.0" />
     <!-- Pino direto: a versão transitiva puxada pelo Microsoft.Data.Sqlite (2.1.x) ficou para trás do SQLite embutido corrigido (ex: CVE-2025-6965, corrupção de memória). -->
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
     <PackageReference Include="System.Diagnostics.PerformanceCounter" Version="10.0.14" />
